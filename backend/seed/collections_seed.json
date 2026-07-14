@@ -1,0 +1,51 @@
+[
+  {
+    "title": "Eid Collection",
+    "subtitle": "Formal wear for celebrations",
+    "description": "Elegant formal and semi-formal pieces perfect for Eid",
+    "filter_definition": {
+      "occasion": "Eid",
+      "budget_max": 50000
+    },
+    "sort_order": 1
+  },
+  {
+    "title": "Mehndi & Sangeet",
+    "subtitle": "Vibrant colors for the festivities",
+    "description": "Colorful and festive designs for pre-wedding celebrations",
+    "filter_definition": {
+      "occasion": "Mehndi & Sangeet",
+      "tags": ["embroidery", "silk"]
+    },
+    "sort_order": 2
+  },
+  {
+    "title": "Everyday Essentials",
+    "subtitle": "Comfortable daily wear",
+    "description": "Light and breathable designs perfect for everyday wear",
+    "filter_definition": {
+      "occasion": "Casual",
+      "budget_max": 5000
+    },
+    "sort_order": 3
+  },
+  {
+    "title": "Formal Affairs",
+    "subtitle": "Sophisticated elegance",
+    "description": "Refined formal wear for special occasions",
+    "filter_definition": {
+      "occasion": "Formal",
+      "budget_max": 60000
+    },
+    "sort_order": 4
+  },
+  {
+    "title": "Summer Breeze",
+    "subtitle": "Light & breezy fabrics",
+    "description": "Cool fabrics like lawn and cotton for summer season",
+    "filter_definition": {
+      "tags": ["lawn", "cotton"]
+    },
+    "sort_order": 5
+  }
+]

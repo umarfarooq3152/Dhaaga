@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dhaaga-backend"
+version = "0.1.0"
+description = "Dhaaga conversational search backend - live-fetch product cache over Pakistani clothing brands"
+requires-python = ">=3.11"
+packages = [
+    { include = "app" },
+]
+
+dependencies = [
+    "fastapi==0.104.1",
+    "uvicorn[standard]==0.24.0",
+    "sqlalchemy[asyncio]==2.0.23",
+    "asyncpg==0.29.0",
+    "alembic==1.13.0",
+    "pydantic==2.5.0",
+    "pydantic-settings==2.1.0",
+    "httpx==0.25.2",
+    "aiohttp==3.9.1",
+    "beautifulsoup4==4.12.2",
+    "google-genai==0.3.0",
+    "groq==0.4.1",
+    "redis==5.0.1",
+    "apscheduler==3.10.4",
+    "slowapi==0.1.9",
+    "python-multipart==0.0.6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==7.4.3",
+    "pytest-asyncio==0.21.1",
+    "pytest-cov==4.1.0",
+    "respx==0.21.1",
+    "black==23.12.0",
+    "ruff==0.1.11",
+    "mypy==1.7.1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--cov=app --cov-report=term-missing --cov-fail-under=80"
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = ["*/tests/*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+disallow_any_unimported = false
