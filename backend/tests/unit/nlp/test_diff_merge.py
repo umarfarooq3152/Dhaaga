@@ -106,3 +106,14 @@ def test_brands_untouched_by_llm_diff():
     diff = IntentExtractionResult(occasion="eid", assistant_reply="ok")
     result = merge_session_state(current, diff)
     assert result.brands == ["limelight"]
+
+
+def test_department_persists_across_merge():
+    # department isn't part of IntentExtractionResult at all (it comes from
+    # onboarding, not free text) — merge_session_state must explicitly carry
+    # it forward or every turn after the first would silently drop it back
+    # to None, exactly like `brands` needs the same explicit carry-forward.
+    current = SessionState(department="men")
+    diff = IntentExtractionResult(occasion="eid", budget_max=20000, assistant_reply="ok")
+    result = merge_session_state(current, diff)
+    assert result.department == "men"

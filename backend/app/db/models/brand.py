@@ -18,3 +18,6 @@ class Brand(TimestampedModel):
     domain: Mapped[str] = mapped_column(String(255), nullable=False)
     logo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 'men' | 'women' | 'unisex' — best-effort classification for department
+    # based discovery weighting, not a strict gender-exclusivity claim.
+    department: Mapped[str] = mapped_column(String(20), default="unisex", nullable=False)

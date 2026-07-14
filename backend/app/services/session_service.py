@@ -19,7 +19,7 @@ from app.session_store.base import SessionStore
 
 logger = logging.getLogger(__name__)
 
-MIN_RESULTS_BEFORE_RELAX = 6
+MIN_RESULTS_BEFORE_RELAX = 10
 SHOW_MORE_PAGE_SIZE = 40
 DEFAULT_PAGE_SIZE = 20
 
@@ -54,34 +54,43 @@ def _build_filters(state: SessionState) -> dict:
 def _search_with_relax(
     products: list[Product], state: SessionState, page_size: int
 ) -> ProductSearchResponse:
-    """Run search, progressively relaxing budget then occasion if results
-    are too thin — never return an empty grid when a looser match exists."""
+    """Run search, progressively relaxing the most restrictive filters if
+    results are too thin — never return a sparse grid when a looser match
+    exists. Order: budget, then occasion, then color/size."""
     query = " ".join(state.style_descriptors)
 
-    def _run(occasion: str | None, max_price: float | None) -> ProductSearchResponse:
+    def _run(
+        occasion: str | None, max_price: float | None, color: str | None, size: str | None
+    ) -> ProductSearchResponse:
         return SearchService.search(
             products,
             query=query,
             occasion=occasion,
-            color=state.color_preference,
-            size=state.size,
+            color=color,
+            size=size,
             max_price=max_price,
             page=1,
             page_size=page_size,
         )
 
-    result = _run(state.occasion, state.budget_max)
+    result = _run(state.occasion, state.budget_max, state.color_preference, state.size)
     if result.total >= MIN_RESULTS_BEFORE_RELAX:
         return result
 
     if state.budget_max is not None:
-        relaxed = _run(state.occasion, None)
+        relaxed = _run(state.occasion, None, state.color_preference, state.size)
         if relaxed.total >= MIN_RESULTS_BEFORE_RELAX:
             return relaxed
         result = relaxed
 
     if state.occasion is not None:
-        result = _run(None, None)
+        relaxed = _run(None, None, state.color_preference, state.size)
+        if relaxed.total >= MIN_RESULTS_BEFORE_RELAX:
+            return relaxed
+        result = relaxed
+
+    if state.color_preference is not None or state.size is not None:
+        result = _run(None, None, None, None)
 
     return result
 
@@ -108,10 +117,18 @@ class SessionService:
         self._cache_service = cache_service
 
     async def handle_turn(
-        self, session_id: str | None, device_id: UUID | None, text: str
+        self,
+        session_id: str | None,
+        device_id: UUID | None,
+        text: str,
+        department: str | None = None,
     ) -> ChatTurnResponse:
         session_id = session_id or str(uuid4())
         current_state = await self._session_store.get(session_id) or SessionState()
+        # Department comes directly from onboarding, not the LLM/fast-path
+        # diff pipeline — explicit overwrite here, separate from merge_session_state.
+        if department is not None:
+            current_state = current_state.model_copy(update={"department": department})
         last_results = await self._session_store.get_last_results(session_id)
 
         await self._chat_repo.add_message(session_id, "user", text, device_id)
@@ -170,8 +187,15 @@ class SessionService:
     async def reset_session(self, session_id: str) -> ChatTurnResponse:
         """Clear a session's state/results back to fresh — the only reliable
         way to honor "Clear All", since merge_session_state only overwrites
-        fields on new extraction and never clears one on request."""
-        fresh_state = SessionState()
+        fields on new extraction and never clears one on request.
+
+        department is preserved — it's an onboarding-level identity
+        preference (like size), not a conversational search filter, so
+        "Clear All" shouldn't silently widen the catalog back to all
+        departments.
+        """
+        current_state = await self._session_store.get(session_id) or SessionState()
+        fresh_state = SessionState(department=current_state.department)
         reply = "I've cleared the current filters — tell me what you're looking for!"
 
         await self._session_store.set(session_id, fresh_state)
@@ -215,7 +239,7 @@ class SessionService:
         return diff
 
     async def _collect_candidate_products(self, state: SessionState) -> list[Product]:
-        brands = await self._brand_repo.get_all_active()
+        brands = await self._brand_repo.get_all_active(department=state.department)
         target_brands = [
             b
             for b in brands

@@ -8,6 +8,44 @@ from app.schemas.product import Product, ProductSearchResponse
 logger = logging.getLogger(__name__)
 
 
+def _brand_slug(product: Product) -> str:
+    return product.id.split(":", 1)[0]
+
+
+def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
+    """Interleave results across brands round-robin instead of a flat sort.
+
+    A flat sort that falls back to product name on tied scores (the common
+    case for pure structured/budget queries, where every product scores the
+    same 1.0) clusters results by whichever brand's naming convention
+    happens to sort first alphabetically — e.g. many brands name products
+    "2 PIECE ... SUIT", so one brand's catalog can dominate every result.
+    Grouping by brand (sorted by score desc, then price asc within each
+    brand) and round-robining across groups guarantees real brand variety.
+    """
+    groups: dict[str, list[tuple[Product, float]]] = {}
+    for product, score in scored:
+        groups.setdefault(_brand_slug(product), []).append((product, score))
+
+    for group in groups.values():
+        group.sort(key=lambda x: (-x[1], x[0].price))
+
+    # Order brand groups by their best-scoring item first, so a brand with
+    # a genuinely stronger match still leads — diversification changes
+    # *how results interleave*, not which brand is most relevant.
+    ordered_brands = sorted(groups.keys(), key=lambda slug: -groups[slug][0][1])
+
+    result: list[Product] = []
+    round_idx = 0
+    while any(round_idx < len(groups[slug]) for slug in ordered_brands):
+        for slug in ordered_brands:
+            if round_idx < len(groups[slug]):
+                result.append(groups[slug][round_idx][0])
+        round_idx += 1
+
+    return result
+
+
 def _keyword_score(product: Product, keywords: list[str]) -> float:
     """Calculate keyword match score for a product.
     
@@ -133,11 +171,10 @@ class SearchService:
             for product in filtered
         ]
 
-        # Sort by score (highest first), then by name for tie-breaking
-        scored.sort(key=lambda x: (-x[1], x[0].name))
-
-        # Extract products (discard scores)
-        ranked_products = [p for p, _ in scored]
+        # Diversify across brands rather than a flat score/name sort (see
+        # _diversify_by_brand — a flat sort clusters results by whichever
+        # brand's product-naming convention wins ties alphabetically).
+        ranked_products = _diversify_by_brand(scored)
 
         # Paginate
         total = len(ranked_products)

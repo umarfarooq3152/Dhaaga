@@ -7,6 +7,15 @@ from app.schemas.product import Product
 
 logger = logging.getLogger(__name__)
 
+# Some brands (e.g. Nishat Linen's "Freedom to Buy" line) list raw fabric
+# sold by the meter as regular catalog products, using a per-unit pricing
+# scheme that produces nonsensical near-zero prices (e.g. Rs. 9.20) for
+# what Shopify's own storefront shows as a much larger real price. These
+# aren't finished garments and don't belong in an outfit-discovery catalog
+# at all, so they're excluded at ingestion rather than mis-priced.
+UNIT_SALE_PRODUCT_TYPES = {"meter", "meters", "yard", "yards"}
+MIN_PLAUSIBLE_PRICE = 200.0  # backstop against other brands' similar data quirks
+
 
 def extract_colors(shopify_product: dict[str, Any]) -> list[str]:
     """Extract unique colors from Shopify product options, falling back to
@@ -97,6 +106,10 @@ def map_shopify_to_product(
             )
             return None
 
+        if category and category.lower() in UNIT_SALE_PRODUCT_TYPES:
+            logger.debug(f"Skipping unit-sale product (sold by {category}): {title}")
+            return None
+
         # Extract price from first available variant
         price = 0.0
         for variant in shopify_product.get("variants", []):
@@ -107,9 +120,21 @@ def map_shopify_to_product(
                 except (ValueError, TypeError):
                     pass
 
+        if price < MIN_PLAUSIBLE_PRICE:
+            logger.debug(f"Skipping implausibly-priced product (Rs. {price}): {title}")
+            return None
+
         colors = extract_colors(shopify_product)
         sizes = extract_sizes(shopify_product)
         primary_image, secondary_image = extract_images(shopify_product)
+
+        if not primary_image:
+            # A handful of listings (seen on real Zellbury data — hand
+            # towels, dupattas) have no image uploaded at all yet. A
+            # product card with no image is useless in a visual shopping
+            # app, and rendering `<img src="">` also throws a React warning.
+            logger.debug(f"Skipping product with no image: {title}")
+            return None
 
         # Build product URL
         product_url = f"https://{domain}/products/{handle}" if handle else ""

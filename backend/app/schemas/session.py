@@ -15,7 +15,8 @@ class SessionState(BaseModel):
     size: Optional[str] = None
     deadline_date: Optional[date] = None
     excluded: list[str] = Field(default_factory=list)
-    brands: list[str] = Field(default_factory=list)  # empty = all 16
+    brands: list[str] = Field(default_factory=list)  # empty = all active brands
+    department: Optional[str] = None  # 'men' | 'women' | 'unisex' — from onboarding
 
 
 class IntentExtractionResult(BaseModel):
@@ -37,6 +38,7 @@ class ChatTurnRequest(BaseModel):
 
     query: str = Field(..., min_length=1)
     session_id: Optional[str] = None  # If None, create new session
+    department: Optional[str] = None  # set from onboarding, not LLM-extracted
 
 
 class SessionResetRequest(BaseModel):

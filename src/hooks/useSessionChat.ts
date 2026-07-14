@@ -49,6 +49,7 @@ interface UseSessionChatResult {
 
 export function useSessionChat(
   userName: string,
+  department?: 'men' | 'women',
   initialQuery?: string,
   initialFilters?: { style?: string; occasion?: string; budget?: string }
 ): UseSessionChatResult {
@@ -73,7 +74,7 @@ export function useSessionChat(
     setIsChatLoading(true);
     setIsProductsLoading(true);
 
-    sendSessionMessage(sessionIdRef.current, text)
+    sendSessionMessage(sessionIdRef.current, text, department)
       .then((result) => {
         sessionIdRef.current = result.sessionId;
         setFilters(result.filters);
@@ -104,7 +105,7 @@ export function useSessionChat(
         setIsChatLoading(false);
         setIsProductsLoading(false);
       });
-  }, []);
+  }, [department]);
 
   const resetSession = useCallback(() => {
     const welcomeMessage: Message = {

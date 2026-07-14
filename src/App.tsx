@@ -17,6 +17,7 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<CurrentScreen>('onboarding');
   const [userName, setUserName] = useState<string>('Meera');
   const [preferredSize, setPreferredSize] = useState<string>('M');
+  const [department, setDepartment] = useState<'men' | 'women'>('women');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatQuery, setChatQuery] = useState<string>('');
   const [chatFilters, setChatFilters] = useState<{ style?: string, occasion?: string, budget?: string }>({});
@@ -28,9 +29,10 @@ export default function App() {
   // Collapse controller for the minor helper switcher
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
 
-  const handleOnboardingComplete = (name: string, size: string) => {
+  const handleOnboardingComplete = (name: string, size: string, dept: 'men' | 'women') => {
     setUserName(name);
     setPreferredSize(size);
+    setDepartment(dept);
     // Per TDD §10, only `size` persists server-side — name stays client-only.
     if (deviceId) {
       updateDeviceSize(deviceId, size).catch((error) => {
@@ -88,6 +90,7 @@ export default function App() {
             {currentScreen === 'discovery' && (
               <DiscoveryScreen
                 userName={userName}
+                department={department}
                 onEnterChat={handleEnterChat}
                 onSelectCollection={(title) => handleEnterChat(`Show me the ${title}`)}
                 wishlist={wishlist}
@@ -98,6 +101,7 @@ export default function App() {
             {currentScreen === 'chat' && (
               <ChatSearchScreen
                 userName={userName}
+                department={department}
                 initialQuery={chatQuery}
                 initialFilters={chatFilters}
                 onBack={() => setCurrentScreen('discovery')}

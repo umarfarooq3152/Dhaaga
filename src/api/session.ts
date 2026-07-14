@@ -26,11 +26,13 @@ async function toResult(response: ChatTurnResponse): Promise<SessionMessageResul
 
 export async function sendSessionMessage(
   sessionId: string | null,
-  query: string
+  query: string,
+  department?: 'men' | 'women'
 ): Promise<SessionMessageResult> {
   const response = await api.post<ChatTurnResponse>('/session/message', {
     session_id: sessionId,
     query,
+    department: department ?? null,
   });
   return toResult(response);
 }

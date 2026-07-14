@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Check } from 'lucide-react';
 
 interface OnboardingScreenProps {
-  onComplete: (userName: string, preferredSize: string) => void;
+  onComplete: (userName: string, preferredSize: string, department: 'men' | 'women') => void;
   onSkip: () => void;
 }
 
@@ -27,7 +27,7 @@ export default function OnboardingScreen({ onComplete, onSkip }: OnboardingScree
     if (step < totalSteps - 1) {
       setStep(step + 1);
     } else {
-      onComplete(userName || 'Meera', selections.size);
+      onComplete(userName || 'Meera', selections.size, selections.department === 'Menswear' ? 'men' : 'women');
     }
   };
 
@@ -41,7 +41,9 @@ export default function OnboardingScreen({ onComplete, onSkip }: OnboardingScree
 
   // Ultra-clean South Asian luxury assets
   const images = {
-    menswear: 'https://images.unsplash.com/photo-1607990283143-e81e7a2c93ab?q=80&w=600&auto=format&fit=crop',
+    // Previous menswear URL (photo-1607990283143-e81e7a2c93ab) 404s — Unsplash
+    // removed that photo. Replaced with a verified-working sherwani/turban photo.
+    menswear: 'https://images.unsplash.com/photo-1576470189712-50fe3ec06b04?q=80&w=600&auto=format&fit=crop',
     womenswear: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?q=80&w=600&auto=format&fit=crop',
   };
 

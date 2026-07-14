@@ -4,10 +4,12 @@ import { Search, Mic, Heart, ShoppingBag, ArrowRight, User, Settings, LogOut, Sh
 // @ts-ignore
 import searchBarBg from '../assets/images/search_bar_bg_1783947191734.jpg';
 import { fetchCollections } from '../api/collections';
-import { ApiCollection } from '../types';
+import { fetchBrands } from '../api/brands';
+import { ApiBrand, ApiCollection } from '../types';
 
 interface DiscoveryScreenProps {
   userName: string;
+  department?: 'men' | 'women';
   onEnterChat: (initialQuery?: string, initialFilters?: { style?: string, occasion?: string, budget?: string }) => void;
   onSelectCollection: (colTitle: string) => void;
   wishlist: string[];
@@ -21,6 +23,7 @@ const QUICK_SEARCH_CHIPS = ['Eid Edit', 'Budget under 50k', 'Subtle embroidery w
 
 export default function DiscoveryScreen({
   userName,
+  department,
   onEnterChat,
   onSelectCollection,
   wishlist,
@@ -31,12 +34,20 @@ export default function DiscoveryScreen({
   const [showProfile, setShowProfile] = useState(false);
   const [activeChips, setActiveChips] = useState<string[]>(QUICK_SEARCH_CHIPS);
   const [collections, setCollections] = useState<ApiCollection[]>([]);
+  const [menswearBrands, setMenswearBrands] = useState<ApiBrand[]>([]);
 
   useEffect(() => {
     fetchCollections()
       .then(setCollections)
       .catch((error) => console.error('Failed to load collections:', error));
   }, []);
+
+  useEffect(() => {
+    if (department !== 'men') return;
+    fetchBrands()
+      .then((brands) => setMenswearBrands(brands.filter((b) => b.department === 'men')))
+      .catch((error) => console.error('Failed to load menswear brands:', error));
+  }, [department]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -248,7 +259,29 @@ export default function DiscoveryScreen({
           </div>
         </div>
 
-        {/* 3. Curated Editorial Collections */}
+        {/* 3. Menswear Labels — shown only when the shopper picked Menswear at onboarding */}
+        {department === 'men' && menswearBrands.length > 0 && (
+          <section className="px-6 sm:px-12 pb-10">
+            <div className="max-w-6xl mx-auto space-y-5">
+              <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#1C1B1B]">
+                Menswear Labels
+              </h2>
+              <div className="flex flex-wrap gap-2.5">
+                {menswearBrands.map((brand) => (
+                  <button
+                    key={brand.id}
+                    onClick={() => onEnterChat(`Show me ${brand.name}`)}
+                    className="bg-white border border-gray-200/60 text-[#1C1B1B] text-xs font-sans font-semibold py-2 px-4 rounded-full hover:border-[#003224] hover:text-[#003224] transition-all cursor-pointer shadow-xs"
+                  >
+                    {brand.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* 4. Curated Editorial Collections */}
         {collections.length > 0 && (
           <section className="px-6 sm:px-12 pb-16">
             <div className="max-w-6xl mx-auto space-y-5">
@@ -289,7 +322,7 @@ export default function DiscoveryScreen({
 
       </main>
 
-      {/* 4. Footer */}
+      {/* 5. Footer */}
       <footer className="border-t border-gray-150/50 bg-[#FBF9F6] py-10 px-6 text-center text-[11px] text-gray-400 font-sans">
         <p className="font-serif tracking-[0.2em] text-[#003224] font-bold text-xs uppercase mb-1">DHAAGA</p>
         <p>© 2026 Dhaaga. Crafted with dignity and heritage honor in Pakistan.</p>

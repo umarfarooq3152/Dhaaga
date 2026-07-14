@@ -48,6 +48,7 @@ export interface SessionState {
   deadline_date: string | null;
   excluded: string[];
   brands: string[];
+  department: string | null;
 }
 
 export interface ChatTurnResponse {
@@ -66,6 +67,7 @@ export interface ApiBrand {
   domain: string;
   logo_url: string | null;
   is_active: boolean;
+  department: string;
 }
 
 export interface ApiCollection {

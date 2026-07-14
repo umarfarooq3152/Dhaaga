@@ -6,6 +6,7 @@ import { useSessionChat } from '../hooks/useSessionChat';
 
 interface ChatSearchScreenProps {
   userName: string;
+  department?: 'men' | 'women';
   initialQuery?: string;
   initialFilters?: { style?: string, occasion?: string, budget?: string };
   onBack: () => void;
@@ -58,6 +59,7 @@ const ChatMessageSkeleton = () => (
 
 export default function ChatSearchScreen({
   userName,
+  department,
   initialQuery = '',
   initialFilters = {},
   onBack,
@@ -80,7 +82,7 @@ export default function ChatSearchScreen({
 
   const [inputText, setInputText] = useState('');
   const { messages, filteredProducts, filters, isChatLoading, isProductsLoading, sendMessage, resetSession } =
-    useSessionChat(userName, initialQuery, initialFilters);
+    useSessionChat(userName, department, initialQuery, initialFilters);
 
   // Mobile sheet states
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);

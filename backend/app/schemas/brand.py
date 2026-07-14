@@ -14,6 +14,7 @@ class BrandResponse(BaseModel):
     domain: str
     logo_url: Optional[str] = None
     is_active: bool
+    department: str
 
     class Config:
         from_attributes = True

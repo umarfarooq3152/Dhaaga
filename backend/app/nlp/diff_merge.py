@@ -58,4 +58,5 @@ def merge_session_state(
         deadline_date=deadline_date,
         excluded=_dedup(current.excluded + diff.excluded),
         brands=current.brands,
+        department=current.department,
     )

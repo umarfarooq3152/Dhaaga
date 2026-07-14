@@ -2,81 +2,145 @@
   {
     "name": "Limelight",
     "slug": "limelight",
-    "domain": "www.limelight.pk"
+    "domain": "www.limelight.pk",
+    "department": "women"
   },
   {
     "name": "Alkaram Studio",
     "slug": "alkaram-studio",
-    "domain": "www.alkaramstudio.com"
+    "domain": "www.alkaramstudio.com",
+    "department": "women"
   },
   {
     "name": "Sana Safinaz",
     "slug": "sana-safinaz",
-    "domain": "sanasafinaz.com"
+    "domain": "sanasafinaz.com",
+    "department": "women"
   },
   {
     "name": "Gul Ahmed",
     "slug": "gul-ahmed",
-    "domain": "www.gulahmedshop.com"
+    "domain": "www.gulahmedshop.com",
+    "department": "unisex"
   },
   {
     "name": "Zellbury",
     "slug": "zellbury",
-    "domain": "zellbury.com"
+    "domain": "zellbury.com",
+    "department": "unisex"
   },
   {
     "name": "Bonanza Satrangi",
     "slug": "bonanza-satrangi",
-    "domain": "bonanzasatrangi.com"
+    "domain": "bonanzasatrangi.com",
+    "department": "women"
   },
   {
     "name": "Nishat Linen",
     "slug": "nishat-linen",
-    "domain": "nishatlinen.com"
+    "domain": "nishatlinen.com",
+    "department": "women"
   },
   {
     "name": "Maria B",
     "slug": "maria-b",
-    "domain": "mariab.pk"
+    "domain": "mariab.pk",
+    "department": "women"
   },
   {
     "name": "Beechtree",
     "slug": "beechtree",
-    "domain": "beechtree.pk"
+    "domain": "beechtree.pk",
+    "department": "women"
   },
   {
     "name": "J. Junaid Jamshed",
     "slug": "junaid-jamshed",
-    "domain": "www.junaidjamshed.com"
+    "domain": "www.junaidjamshed.com",
+    "department": "unisex"
   },
   {
     "name": "Generation",
     "slug": "generation",
-    "domain": "generation.com.pk"
+    "domain": "generation.com.pk",
+    "department": "unisex"
   },
   {
     "name": "Cross Stitch",
     "slug": "cross-stitch",
-    "domain": "www.crossstitch.pk"
+    "domain": "www.crossstitch.pk",
+    "department": "women"
   },
   {
     "name": "Outfitters",
     "slug": "outfitters",
-    "domain": "outfitters.com.pk"
+    "domain": "outfitters.com.pk",
+    "department": "unisex"
   },
   {
     "name": "So Kamal",
     "slug": "so-kamal",
-    "domain": "www.sokamal.com"
+    "domain": "www.sokamal.com",
+    "department": "women"
   },
   {
     "name": "Asim Jofa",
     "slug": "asim-jofa",
-    "domain": "asimjofa.com"
+    "domain": "asimjofa.com",
+    "department": "women"
   },
   {
     "name": "Zara Shahjahan",
     "slug": "zara-shahjahan",
-    "domain": "zarashahjahan.com"
+    "domain": "zarashahjahan.com",
+    "department": "women"
+  },
+  {
+    "name": "Ivar Clothing",
+    "slug": "ivar-clothing",
+    "domain": "ivarclothing.com",
+    "department": "men"
+  },
+  {
+    "name": "GROOVY",
+    "slug": "groovy-pakistan",
+    "domain": "groovypakistan.com",
+    "department": "men"
+  },
+  {
+    "name": "Outfit by DK",
+    "slug": "outfit-by-dk",
+    "domain": "outfitbydk.com",
+    "department": "men"
+  },
+  {
+    "name": "Kotton Fruit",
+    "slug": "kotton-fruit",
+    "domain": "www.kottonfruit.com",
+    "department": "men"
+  },
+  {
+    "name": "HavenWear",
+    "slug": "havenwear",
+    "domain": "havenwearpakistan.com",
+    "department": "men"
+  },
+  {
+    "name": "AWKWRDx",
+    "slug": "awkwrdx",
+    "domain": "www.awkwardxstore.com",
+    "department": "men"
+  },
+  {
+    "name": "Cougar",
+    "slug": "cougar",
+    "domain": "www.cougar.com.pk",
+    "department": "men"
+  },
+  {
+    "name": "The Hanger Pakistan",
+    "slug": "the-hanger-pakistan",
+    "domain": "thehangerpakistan.com",
+    "department": "men"
   }
 ]

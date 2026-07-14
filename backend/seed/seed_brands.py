@@ -18,6 +18,7 @@ async def seed_brands(session):
             name=brand_data["name"],
             slug=brand_data["slug"],
             domain=brand_data["domain"],
+            department=brand_data.get("department", "unisex"),
             is_active=True,
         )
         session.add(brand)

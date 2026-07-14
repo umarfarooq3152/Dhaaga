@@ -14,11 +14,17 @@ class BrandRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def get_all_active(self) -> list[Brand]:
-        """Get all active brands."""
-        result = await self.session.execute(
-            select(Brand).where(Brand.is_active == True).order_by(Brand.name)
-        )
+    async def get_all_active(self, department: Optional[str] = None) -> list[Brand]:
+        """Get all active brands, optionally filtered by department.
+
+        A department filter includes that department's brands plus
+        'unisex' ones — 'unisex' brands are relevant regardless of the
+        shopper's stated department.
+        """
+        query = select(Brand).where(Brand.is_active == True)
+        if department:
+            query = query.where(Brand.department.in_([department, "unisex"]))
+        result = await self.session.execute(query.order_by(Brand.name))
         return result.scalars().all()
 
     async def get_by_slug(self, slug: str) -> Optional[Brand]:

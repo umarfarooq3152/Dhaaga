@@ -110,6 +110,14 @@ class ProductCacheService:
             logger.error(f"Failed to acquire refresh lock for {brand_slug}: {e}")
             return False
 
+    async def _release_refresh_lock(self, brand_slug: str) -> None:
+        """Release the refresh lock so the next call isn't blocked until TTL expiry."""
+        lock_key = self.CACHE_KEY_REFRESH_LOCK.format(brand_slug=brand_slug)
+        try:
+            await self.redis.delete(lock_key)
+        except Exception as e:
+            logger.error(f"Failed to release refresh lock for {brand_slug}: {e}")
+
     async def refresh_brand_products(
         self, brand_slug: str, domain: str
     ) -> list[Product] | None:
@@ -164,6 +172,12 @@ class ProductCacheService:
             )
             # Self-healing fallback: return cached data
             return await self.get_cached_products(brand_slug)
+        finally:
+            # Release explicitly rather than relying solely on the lock's
+            # TTL — otherwise a cleared/expired product cache stays stuck
+            # returning empty for up to the full lock TTL, since a "held"
+            # lock makes get_or_refresh skip straight to (now-empty) cache.
+            await self._release_refresh_lock(brand_slug)
 
     async def get_or_refresh(
         self, brand_slug: str, domain: str

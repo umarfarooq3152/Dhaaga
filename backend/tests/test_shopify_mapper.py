@@ -109,6 +109,39 @@ class TestMapperBasic:
         result = map_shopify_to_product(invalid_product, "brand", "domain.pk")
         assert result is None
 
+    def test_skips_unit_sale_products(self):
+        """Fabric sold by the meter (e.g. Nishat's real 'Meter' product_type,
+        which has genuinely nonsensical fractional per-unit prices) is
+        excluded — it's yardage, not a finished garment."""
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "product_type": "Meter"}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_implausibly_priced_products(self):
+        """A price below the plausibility floor (real observed case: Rs.
+        9.20 for what should be a full-priced garment) is excluded rather
+        than shown as a nonsensical near-free item."""
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "variants": [{"id": 1, "title": "Red / S", "price": "9.20"}],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_products_with_no_image(self):
+        """A product with no image at all (real observed case: Zellbury
+        hand towels/dupattas with empty image arrays) is excluded — a
+        blank card is useless in a visual shopping app."""
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "images": []}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_plausibly_priced_product_with_image_is_kept(self):
+        """Sanity check: the exclusions above don't over-trigger on a
+        normal, valid product."""
+        result = map_shopify_to_product(SAMPLE_SHOPIFY_PRODUCT, "brand", "domain.pk")
+        assert result is not None
+
 
 class TestKeywordMatching:
     """Test occasion and tag extraction."""

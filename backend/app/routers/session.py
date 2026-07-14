@@ -73,6 +73,7 @@ async def send_message(
             session_id=payload.session_id,
             device_id=device_id,
             text=payload.query,
+            department=payload.department,
         )
         await db_session.commit()
         return result
