@@ -14,6 +14,7 @@ class Product(BaseModel):
     colors: list[str] = Field(default_factory=list)
     sizes: list[str] = Field(default_factory=list)
     occasion: Optional[str] = None
+    category: Optional[str] = Field(None, description="Garment type, e.g. Shopify product_type")
     tags: list[str] = Field(default_factory=list)
     image: str
     secondaryImage: Optional[str] = None

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Mic, Send, ArrowLeft, ArrowUpRight, Sparkles, SlidersHorizontal, Eye, RefreshCw, Compass, Heart, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
-import { Product, Message, FilterChips } from '../types';
-import { INITIAL_PRODUCTS } from '../data';
+import { Search, Mic, Send, ArrowLeft, Sparkles, SlidersHorizontal, Eye, RefreshCw, Compass, Heart, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { Product } from '../types';
+import { useSessionChat } from '../hooks/useSessionChat';
 
 interface ChatSearchScreenProps {
   userName: string;
@@ -78,26 +78,9 @@ export default function ChatSearchScreen({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Chat History
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  
-  // Active Simulated Filters
-  const [filters, setFilters] = useState<FilterChips>({
-    style: initialFilters.style || 'All Styles',
-    occasion: initialFilters.occasion || 'All Occasions',
-    budget: initialFilters.budget || 'All Budgets'
-  });
-
-  // Story state: 0 = fresh, 1 = first query submitted ("mehndi under 50k"), 2 = second query submitted ("cheaper")
-  const [storyStep, setStoryStep] = useState(0);
-
-  // Active products in the grid
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>(INITIAL_PRODUCTS);
-
-  // Loading States
-  const [isProductsLoading, setIsProductsLoading] = useState(false);
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  const { messages, filteredProducts, filters, isChatLoading, isProductsLoading, sendMessage, resetSession } =
+    useSessionChat(userName, initialQuery, initialFilters);
 
   // Mobile sheet states
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);
@@ -115,218 +98,32 @@ export default function ChatSearchScreen({
     scrollToBottom();
   }, [messages, isSheetExpanded, isChatLoading]);
 
-  // Initial trigger
-  useEffect(() => {
-    if (initialQuery || initialFilters.occasion || initialFilters.budget || initialFilters.style) {
-      // Trigger with custom loading simulation
-      setIsChatLoading(true);
-      const timer = setTimeout(() => {
-        triggerTurn1(initialQuery || "I need an outfit for my cousin's mehndi, under Rs. 50,000");
-        setIsChatLoading(false);
-      }, 1100);
-      return () => clearTimeout(timer);
-    } else {
-      // Clean start state
-      setMessages([
-        {
-          id: 'welcome',
-          sender: 'assistant',
-          text: `Assalam-o-Alaikum ${userName}. I am Dhaaga's AI Assistant. Tell me what celebratory moment you are dressing for, your preferred fabric, or a specific price range.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-    }
-  }, []);
-
-  // Update products when filters or storyStep change
-  useEffect(() => {
-    setIsProductsLoading(true);
-    const timer = setTimeout(() => {
-      let items = INITIAL_PRODUCTS;
-
-      if (storyStep === 1) {
-        // Mehndi & Sangeet under 50k
-        items = INITIAL_PRODUCTS.filter(p => 
-          p.price <= 50000 && 
-          (p.occasion === 'Mehndi & Sangeet' || p.tags.includes('mehndi'))
-        );
-      } else if (storyStep === 2) {
-        // Under 30k
-        items = INITIAL_PRODUCTS.filter(p => 
-          p.price <= 30000 && 
-          (p.occasion === 'Mehndi & Sangeet' || p.tags.includes('mehndi'))
-        );
-      } else {
-        // Fallback manual filtering
-        if (filters.occasion !== 'All Occasions') {
-          items = items.filter(p => p.occasion === filters.occasion);
-        }
-        if (filters.style !== 'All Styles') {
-          items = items.filter(p => p.category === filters.style);
-        }
-        if (filters.budget !== 'All Budgets') {
-          if (filters.budget === 'Under Rs. 50,000' || filters.budget === 'under 50k') {
-            items = items.filter(p => p.price <= 50000);
-          } else if (filters.budget === 'Under Rs. 30,000' || filters.budget === 'under 30k') {
-            items = items.filter(p => p.price <= 30000);
-          }
-        }
-      }
-
-      setFilteredProducts(items);
-      setIsProductsLoading(false);
-    }, 800);
-
-    return () => clearTimeout(timer);
-  }, [storyStep, filters]);
-
-  // Turn 1 Simulation
-  const triggerTurn1 = (userText: string) => {
-    setStoryStep(1);
-    setFilters({
-      style: 'All Styles',
-      occasion: 'Mehndi & Sangeet',
-      budget: 'Under Rs. 50,000'
-    });
-
-    const newMsgs: Message[] = [
-      {
-        id: 'welcome',
-        sender: 'assistant',
-        text: `Assalam-o-Alaikum ${userName}. I am Dhaaga's AI Assistant. Tell me what celebratory moment you are dressing for, your preferred fabric, or a specific price range.`,
-        timestamp: '10:10 AM'
-      },
-      {
-        id: 'turn-1-user',
-        sender: 'user',
-        text: userText,
-        timestamp: '10:12 AM'
-      },
-      {
-        id: 'turn-1-assistant',
-        sender: 'assistant',
-        text: `I've analyzed our heritage catalog for Mehndi & Sangeet wear under Rs. 50,000.\n\nI have curated magnificent handloomed garments matching your request, showcasing rich emerald, royal teal, and deep lapis blue hues in premium silk, jamawar, and tilla. \n\nTake a look at the live selections in your feed.`,
-        timestamp: '10:12 AM'
-      }
-    ];
-    setMessages(newMsgs);
-  };
-
-  // Turn 2 Simulation
-  const triggerTurn2 = () => {
-    setIsChatLoading(true);
-    const timer = setTimeout(() => {
-      setStoryStep(2);
-      setFilters({
-        style: 'All Styles',
-        occasion: 'Mehndi & Sangeet',
-        budget: 'Under Rs. 30,000'
-      });
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: 'turn-2-user',
-          sender: 'user',
-          text: 'can you show me some cheaper ones?',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        },
-        {
-          id: 'turn-2-assistant',
-          sender: 'assistant',
-          text: `Certainly. Refining our search to luxury pieces under Rs. 30,000.\n\nThis brings the Multan Gota-Patti Angrakha (Rs. 24,000) and the Teal Block-Print Gharara Set (Rs. 29,500) to the forefront. I've updated the collection grid for you.`,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-      setIsChatLoading(false);
-    }, 1000);
-  };
-
   // Custom user message submit
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
-
-    const userMsgText = inputText;
+    sendMessage(inputText);
     setInputText('');
-
-    // Add user message
-    const timestampStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const userMsg: Message = {
-      id: 'custom-user-' + Date.now(),
-      sender: 'user',
-      text: userMsgText,
-      timestamp: timestampStr
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    setIsChatLoading(true);
-
-    // Simulate response
-    setTimeout(() => {
-      let assistantResponse = '';
-      const lower = userMsgText.toLowerCase();
-      if (lower.includes('cheap') || lower.includes('low') || lower.includes('budget') || lower.includes('less')) {
-        setIsChatLoading(false);
-        triggerTurn2();
-        return;
-      } else if (lower.includes('red') || lower.includes('wedding') || lower.includes('lehenga') || lower.includes('barat') || lower.includes('walima')) {
-        setFilters({
-          style: 'Lehenga',
-          occasion: 'Barat & Walima',
-          budget: 'All Budgets'
-        });
-        assistantResponse = `I've shifted our curation focus to high-end Barat & Walima garments and Lehengas. Highlighting the royal Shehnai Crimson Zardozi Lehenga (Rs. 185,000) crafted in hand-loomed velvet and traditional kora dabka.`;
-      } else {
-        assistantResponse = `Fascinating selection. I've scanned our inventory for "${userMsgText}" to match your preferences. I have updated the visual catalog alongside our conversation. Is there a specific fabric weight or delivery date you need?`;
-      }
-
-      setMessages(prev => [
-        ...prev,
-        {
-          id: 'custom-assistant-' + Date.now(),
-          sender: 'assistant',
-          text: assistantResponse,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
-      setIsChatLoading(false);
-    }, 1200);
   };
 
-  // Audio recording simulation
+  // Voice note search (Feature 6) is deferred post-MVP — mic just toggles a
+  // visual recording state for now, no real transcription yet.
   const handleMicClick = () => {
-    if (!isRecording) {
-      setIsRecording(true);
-    } else {
-      setIsRecording(false);
-      setInputText("Can you show me some cheaper ones?");
-    }
+    setIsRecording((prev) => !prev);
   };
 
-  const removeFilter = (key: keyof FilterChips) => {
-    setFilters(prev => ({ ...prev, [key]: `All ${key.charAt(0).toUpperCase() + key.slice(1)}s` }));
-    if (storyStep > 0) {
-      setStoryStep(0);
-    }
+  // Individual chip removal isn't independently supported server-side yet
+  // (session state has no "clear this one field" signal) — both actions
+  // fall back to a full session reset, which is reliable.
+  const removeFilter = (_key: keyof typeof filters) => {
+    resetSession();
   };
 
   const resetAllFilters = () => {
-    setFilters({
-      style: 'All Styles',
-      occasion: 'All Occasions',
-      budget: 'All Budgets'
-    });
-    setStoryStep(0);
-    setMessages([
-      {
-        id: 'reset',
-        sender: 'assistant',
-        text: `I've cleared the specific search parameters. Tell me what else you're looking for!`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-    ]);
+    resetSession();
   };
+
+  const storyStep = messages.length > 1 ? 1 : 0;
 
   // Shared Product Grid Component
   const renderProductGrid = (gridColsClass: string) => (
@@ -394,7 +191,7 @@ export default function ChatSearchScreen({
               transition={{ duration: 0.3 }}
               onClick={() => onSelectProduct(p)}
               className={`bg-white rounded-[4px] p-2.5 overflow-hidden group cursor-pointer hover:border-gray-400 transition-all shadow-sm flex flex-col justify-between ${
-                p.id === '1' && storyStep > 0
+                p.id === filteredProducts[0]?.id
                   ? 'border-2 border-[#003224]'
                   : 'border border-gray-100'
               }`}
@@ -407,7 +204,7 @@ export default function ChatSearchScreen({
                   referrerPolicy="no-referrer"
                 />
                 
-                {p.id === '1' && storyStep > 0 && (
+                {p.id === filteredProducts[0]?.id && (
                   <div className="absolute top-2.5 right-2.5 bg-[#003224] text-[#FCF9F8] text-[8px] font-extrabold tracking-widest px-2.5 py-1 rounded-sm shadow-md z-20">
                     MOST MATCHED
                   </div>
@@ -419,7 +216,7 @@ export default function ChatSearchScreen({
                     e.stopPropagation();
                     onToggleWishlist(p.id);
                   }}
-                  className={`absolute ${p.id === '1' && storyStep > 0 ? 'top-11' : 'top-2.5'} right-2.5 z-30 p-1.5 rounded-full bg-white/90 backdrop-blur-xs hover:bg-white text-gray-500 hover:text-red-500 transition-all shadow-sm cursor-pointer`}
+                  className={`absolute ${p.id === filteredProducts[0]?.id ? 'top-11' : 'top-2.5'} right-2.5 z-30 p-1.5 rounded-full bg-white/90 backdrop-blur-xs hover:bg-white text-gray-500 hover:text-red-500 transition-all shadow-sm cursor-pointer`}
                   title={wishlist.includes(p.id) ? "Remove from Saved" : "Save Item"}
                 >
                   <Heart
@@ -476,7 +273,7 @@ export default function ChatSearchScreen({
             <div>
               <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider font-sans">Dhaaga AI</span>
               <p className="text-xs text-gray-700 font-sans font-semibold italic truncate max-w-[150px]">
-                {storyStep === 0 ? 'Ask Dhaaga anything...' : storyStep === 1 ? 'Mehndi under 50k' : 'Mehndi under 30k'}
+                {storyStep === 0 ? 'Ask Dhaaga anything...' : filters.occasion}
               </p>
             </div>
           </div>
@@ -564,20 +361,6 @@ export default function ChatSearchScreen({
                         {m.sender === 'assistant' ? (
                           <div className="space-y-1">
                             <p className="whitespace-pre-line text-[#1C1B1B]">{m.text}</p>
-                            {m.id === 'turn-1-assistant' && storyStep === 1 && (
-                              <div className="pt-2 border-t border-gray-200/50 mt-2 flex justify-end">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    triggerTurn2();
-                                  }}
-                                  className="text-[10px] text-[#003224] bg-white border border-[#003224]/20 py-1 px-3 rounded-full font-semibold flex items-center gap-1 hover:bg-[#FCF9F8]"
-                                >
-                                  <span>Simulate "cheaper ones"</span>
-                                  <ArrowUpRight className="w-3 h-3" />
-                                </button>
-                              </div>
-                            )}
                           </div>
                         ) : (
                           <p className="whitespace-pre-line">{m.text}</p>
@@ -668,10 +451,7 @@ export default function ChatSearchScreen({
         <div className="flex items-center gap-2.5 relative">
           {storyStep > 0 && (
             <button
-              onClick={() => {
-                setStoryStep(0);
-                resetAllFilters();
-              }}
+              onClick={resetAllFilters}
               className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-[10px] font-sans font-bold py-1.5 px-3 rounded-full transition-all cursor-pointer flex items-center gap-1"
             >
               <RefreshCw className="w-3 h-3" />
@@ -796,17 +576,6 @@ export default function ChatSearchScreen({
                   {m.sender === 'assistant' ? (
                     <div className="space-y-1">
                       <p className="whitespace-pre-line text-[#1C1B1B]">{m.text}</p>
-                      {m.id === 'turn-1-assistant' && storyStep === 1 && (
-                        <div className="pt-2 border-t border-gray-200/50 mt-2 flex justify-end">
-                          <button
-                            onClick={triggerTurn2}
-                            className="text-[10px] text-[#003224] bg-white border border-[#003224]/20 py-1.5 px-3 rounded-full font-bold flex items-center gap-1 hover:bg-[#FCF9F8] cursor-pointer shadow-xs"
-                          >
-                            <span>Refine: "show cheaper ones"</span>
-                            <ArrowUpRight className="w-3 h-3" />
-                          </button>
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <p className="whitespace-pre-line">{m.text}</p>

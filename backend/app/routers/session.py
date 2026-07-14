@@ -16,7 +16,7 @@ from app.repositories.brand_repo import BrandRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.events_repo import SessionEventRepository
 from app.repositories.query_cache_repo import QueryCacheRepository
-from app.schemas.session import ChatTurnRequest, ChatTurnResponse
+from app.schemas.session import ChatTurnRequest, ChatTurnResponse, SessionResetRequest
 from app.services.product_cache_service import ProductCacheService, create_cache_service
 from app.services.session_service import SessionService
 from app.session_store.redis_store import RedisSessionStore
@@ -80,3 +80,20 @@ async def send_message(
         await db_session.rollback()
         logger.error(f"Session message failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to process message")
+
+
+@router.post("/reset", response_model=ChatTurnResponse)
+async def reset_session(
+    payload: SessionResetRequest,
+    db_session: AsyncSession = Depends(get_session),
+    service: SessionService = Depends(get_session_service),
+) -> ChatTurnResponse:
+    """Clear a session's filters/state back to fresh — backs the "Clear All" action."""
+    try:
+        result = await service.reset_session(payload.session_id)
+        await db_session.commit()
+        return result
+    except Exception as e:
+        await db_session.rollback()
+        logger.error(f"Session reset failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to reset session")

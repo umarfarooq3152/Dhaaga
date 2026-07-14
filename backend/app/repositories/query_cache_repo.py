@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 from hashlib import sha256
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.models.query_cache import QueryIntentCache
 from app.config import get_settings
@@ -40,20 +41,32 @@ class QueryCacheRepository:
         self,
         normalized_query: str,
         extracted_intent: dict[str, Any],
-    ) -> QueryIntentCache:
-        """Cache an intent extraction result."""
+    ) -> None:
+        """Cache an intent extraction result.
+
+        Upserts on query_hash rather than a plain INSERT — two near-
+        simultaneous requests for the same normalized query (e.g. React
+        StrictMode double-invoking an effect, or two users asking the same
+        thing) would otherwise collide on the unique constraint and 500.
+        """
         query_hash = self._hash_query(normalized_query)
         expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.query_cache_ttl_hours)
 
-        cache = QueryIntentCache(
-            query_hash=query_hash,
-            normalized_query=normalized_query,
-            extracted_intent=extracted_intent,
-            expires_at=expires_at,
+        stmt = (
+            pg_insert(QueryIntentCache)
+            .values(
+                query_hash=query_hash,
+                normalized_query=normalized_query,
+                extracted_intent=extracted_intent,
+                expires_at=expires_at,
+            )
+            .on_conflict_do_update(
+                index_elements=["query_hash"],
+                set_={"extracted_intent": extracted_intent, "expires_at": expires_at},
+            )
         )
-        self.session.add(cache)
+        await self.session.execute(stmt)
         await self.session.flush()
-        return cache
 
     async def cleanup_expired(self) -> int:
         """Delete expired cache entries. Returns count of deleted entries."""

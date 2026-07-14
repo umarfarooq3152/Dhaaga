@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Heart, ShoppingBag, Truck, CheckCircle, ExternalLink, RefreshCw } from 'lucide-react';
 import { Product } from '../types';
-import { INITIAL_PRODUCTS } from '../data';
+import { fetchAlternatives } from '../api/products';
 
 interface ProductDetailScreenProps {
   product: Product;
@@ -45,10 +45,22 @@ export default function ProductDetailScreen({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [product]);
 
-  // Find 4 curated alternatives based on category or tags
-  const curatedAlternatives = INITIAL_PRODUCTS
-    .filter(p => p.id !== product.id)
-    .slice(0, 4);
+  // Curated alternatives — tag/category overlap scoring, fetched live per product.
+  const [curatedAlternatives, setCuratedAlternatives] = useState<Product[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAlternatives(product.id, 4)
+      .then((alternatives) => {
+        if (!cancelled) setCuratedAlternatives(alternatives);
+      })
+      .catch((error) => {
+        console.error('Failed to load alternatives:', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [product.id]);
 
   const brandName = product.brand || 'Dhaaga Luxury';
 
@@ -117,6 +129,10 @@ export default function ProductDetailScreen({
 
   const handleRedirectAction = (e: React.MouseEvent) => {
     e.preventDefault();
+    if (product.productUrl) {
+      // Opens in a new tab so the shopper doesn't lose their Dhaaga session.
+      window.open(product.productUrl, '_blank', 'noopener,noreferrer');
+    }
     setShowRedirectNotice(true);
     setTimeout(() => {
       setShowRedirectNotice(false);
@@ -127,7 +143,8 @@ export default function ProductDetailScreen({
     <div className="space-y-3 pt-4">
       <button
         onClick={handleRedirectAction}
-        className="w-full bg-[#003224] text-[#FCF9F8] hover:bg-[#004B37] rounded-full py-4 px-6 font-sans font-semibold text-sm transition-all flex items-center justify-center gap-2 tracking-wide shadow-[0_4px_12px_rgba(0,50,36,0.15)] cursor-pointer"
+        disabled={!product.productUrl}
+        className="w-full bg-[#003224] text-[#FCF9F8] hover:bg-[#004B37] disabled:opacity-50 disabled:cursor-not-allowed rounded-full py-4 px-6 font-sans font-semibold text-sm transition-all flex items-center justify-center gap-2 tracking-wide shadow-[0_4px_12px_rgba(0,50,36,0.15)] cursor-pointer"
       >
         <ShoppingBag className="w-4 h-4" />
         <span>View on {brandName}</span>

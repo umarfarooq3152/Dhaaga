@@ -9,38 +9,21 @@ import ProductDetailScreen from './components/ProductDetailScreen';
 import WishlistDrawer from './components/WishlistDrawer';
 
 import { CurrentScreen, Product } from './types';
-import { INITIAL_PRODUCTS } from './data';
+import { useDeviceId } from './hooks/useDeviceId';
+import { useWishlist } from './hooks/useWishlist';
+import { updateDeviceSize } from './api/devices';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<CurrentScreen>('onboarding');
   const [userName, setUserName] = useState<string>('Meera');
   const [preferredSize, setPreferredSize] = useState<string>('M');
-  const [selectedProduct, setSelectedProduct] = useState<Product>(INITIAL_PRODUCTS[0]);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatQuery, setChatQuery] = useState<string>('');
   const [chatFilters, setChatFilters] = useState<{ style?: string, occasion?: string, budget?: string }>({});
-  
-  // Wishlist global state
-  const [wishlist, setWishlist] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('dhaaga_wishlist');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
-  const handleToggleWishlist = (id: string) => {
-    setWishlist((prev) => {
-      const updated = prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id];
-      try {
-        localStorage.setItem('dhaaga_wishlist', JSON.stringify(updated));
-      } catch (e) {
-        console.error(e);
-      }
-      return updated;
-    });
-  };
+  const deviceId = useDeviceId();
+  const { wishlist, wishlistProducts, toggleWishlist: handleToggleWishlist } = useWishlist(deviceId);
+  const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
   // Collapse controller for the minor helper switcher
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
@@ -48,6 +31,12 @@ export default function App() {
   const handleOnboardingComplete = (name: string, size: string) => {
     setUserName(name);
     setPreferredSize(size);
+    // Per TDD §10, only `size` persists server-side — name stays client-only.
+    if (deviceId) {
+      updateDeviceSize(deviceId, size).catch((error) => {
+        console.error('Failed to save preferred size:', error);
+      });
+    }
     setCurrentScreen('discovery');
   };
 
@@ -66,13 +55,14 @@ export default function App() {
     setCurrentScreen('detail');
   };
 
-  // Switch between screens directly
+  // Switch between screens directly — jumping to 'detail' with nothing
+  // selected yet has nowhere to go, so fall back to discovery instead.
   const jumpToScreen = (screen: CurrentScreen) => {
-    setCurrentScreen(screen);
-    // Preset default selected product if jumping straight to detail
     if (screen === 'detail' && !selectedProduct) {
-      setSelectedProduct(INITIAL_PRODUCTS[0]);
+      setCurrentScreen('discovery');
+      return;
     }
+    setCurrentScreen(screen);
   };
 
   return (
@@ -99,7 +89,7 @@ export default function App() {
               <DiscoveryScreen
                 userName={userName}
                 onEnterChat={handleEnterChat}
-                onSelectCollection={(title) => handleEnterChat('', { style: 'Anarkali Peshwas', occasion: 'Mehndi & Sangeet' })}
+                onSelectCollection={(title) => handleEnterChat(`Show me the ${title}`)}
                 wishlist={wishlist}
                 onToggleWishlist={handleToggleWishlist}
                 onOpenWishlist={() => setIsWishlistOpen(true)}
@@ -117,7 +107,7 @@ export default function App() {
                 onOpenWishlist={() => setIsWishlistOpen(true)}
               />
             )}
-            {currentScreen === 'detail' && (
+            {currentScreen === 'detail' && selectedProduct && (
               <ProductDetailScreen
                 product={selectedProduct}
                 onBack={() => setCurrentScreen('chat')}
@@ -135,7 +125,7 @@ export default function App() {
       <WishlistDrawer
         isOpen={isWishlistOpen}
         onClose={() => setIsWishlistOpen(false)}
-        wishlist={wishlist}
+        wishlistProducts={wishlistProducts}
         onToggleWishlist={handleToggleWishlist}
         onSelectProduct={handleSelectProduct}
       />

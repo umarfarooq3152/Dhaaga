@@ -9,45 +9,49 @@ logger = logging.getLogger(__name__)
 
 
 def extract_colors(shopify_product: dict[str, Any]) -> list[str]:
-    """Extract unique colors from Shopify product options and variants."""
-    colors = set()
+    """Extract unique colors from Shopify product options, falling back to
+    a variant-title heuristic only when no explicit Color option exists.
 
-    # Check for Color option in options array
+    The heuristic (first "/"-separated segment = color) assumes a
+    Color/Size variant order — it's wrong for products with a different
+    option order (e.g. Size/Color/Fabric), so it must never run
+    alongside a successful options-based match or it pollutes the set
+    with sizes/fabric names instead.
+    """
+    colors = set()
     for option in shopify_product.get("options", []):
         if option.get("name", "").lower() == "color":
             colors.update(option.get("values", []))
 
-    # Also extract from variant titles (e.g., "Red / Small")
-    for variant in shopify_product.get("variants", []):
-        title = variant.get("title", "")
-        # Simple heuristic: first part before '/' is usually color
-        if "/" in title:
-            potential_color = title.split("/")[0].strip()
-            if potential_color and len(potential_color) < 30:
-                colors.add(potential_color)
+    if not colors:
+        for variant in shopify_product.get("variants", []):
+            title = variant.get("title", "")
+            if "/" in title:
+                potential_color = title.split("/")[0].strip()
+                if potential_color and len(potential_color) < 30:
+                    colors.add(potential_color)
 
     return sorted(list(colors)) if colors else ["Default"]
 
 
 def extract_sizes(shopify_product: dict[str, Any]) -> list[str]:
-    """Extract unique sizes from Shopify product options and variants."""
+    """Extract unique sizes from Shopify product options, falling back to
+    a variant-title heuristic only when no explicit Size option exists
+    (see extract_colors — same reasoning, opposite end of the title)."""
     sizes = set()
-
-    # Check for Size option in options array
     for option in shopify_product.get("options", []):
         if option.get("name", "").lower() in ("size", "sizes"):
             sizes.update(option.get("values", []))
 
-    # Also extract from variant titles (e.g., "Red / Small")
-    for variant in shopify_product.get("variants", []):
-        title = variant.get("title", "")
-        # Simple heuristic: last part after '/' is usually size
-        if "/" in title:
-            parts = title.split("/")
-            if len(parts) > 1:
-                potential_size = parts[-1].strip()
-                if potential_size and len(potential_size) < 20:
-                    sizes.add(potential_size)
+    if not sizes:
+        for variant in shopify_product.get("variants", []):
+            title = variant.get("title", "")
+            if "/" in title:
+                parts = title.split("/")
+                if len(parts) > 1:
+                    potential_size = parts[-1].strip()
+                    if potential_size and len(potential_size) < 20:
+                        sizes.add(potential_size)
 
     return sorted(list(sizes)) if sizes else ["One Size"]
 
@@ -85,6 +89,7 @@ def map_shopify_to_product(
         title = shopify_product.get("title", "").strip()
         description = shopify_product.get("body_html", "").strip()
         handle = shopify_product.get("handle", "")
+        category = shopify_product.get("product_type", "").strip() or None
 
         if not product_id or not title:
             logger.warning(
@@ -118,6 +123,7 @@ def map_shopify_to_product(
             colors=colors,
             sizes=sizes,
             occasion="",  # Will be filled by keyword_matcher
+            category=category,
             tags=[],  # Will be filled by keyword_matcher
             image=primary_image,
             secondaryImage=secondary_image,

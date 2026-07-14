@@ -39,6 +39,12 @@ class ChatTurnRequest(BaseModel):
     session_id: Optional[str] = None  # If None, create new session
 
 
+class SessionResetRequest(BaseModel):
+    """Clear a session's filters/state back to fresh — used by "Clear All"."""
+
+    session_id: str
+
+
 class ChatTurnResponse(BaseModel):
     """Chat turn response — includes session state, search results, reply."""
 

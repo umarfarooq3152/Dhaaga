@@ -1,0 +1,62 @@
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const DEVICE_ID_STORAGE_KEY = 'dhaaga_device_id';
+
+export function getStoredDeviceId(): string | null {
+  try {
+    return localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredDeviceId(id: string): void {
+  try {
+    localStorage.setItem(DEVICE_ID_STORAGE_KEY, id);
+  } catch {
+    // Ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const deviceId = getStoredDeviceId();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(deviceId ? { 'X-Device-Id': deviceId } : {}),
+    ...options.headers,
+  };
+
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const body = await response.json();
+      detail = body.detail || body.error?.message || detail;
+    } catch {
+      // Response body wasn't JSON — keep the statusText fallback.
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
+}
+
+export const api = {
+  get: <T>(path: string) => request<T>(path, { method: 'GET' }),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: body !== undefined ? JSON.stringify(body) : undefined }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+};

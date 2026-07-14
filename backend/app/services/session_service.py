@@ -167,6 +167,28 @@ class SessionService:
             turn_type=turn_type,
         )
 
+    async def reset_session(self, session_id: str) -> ChatTurnResponse:
+        """Clear a session's state/results back to fresh — the only reliable
+        way to honor "Clear All", since merge_session_state only overwrites
+        fields on new extraction and never clears one on request."""
+        fresh_state = SessionState()
+        reply = "I've cleared the current filters — tell me what you're looking for!"
+
+        await self._session_store.set(session_id, fresh_state)
+        await self._session_store.set_last_results(session_id, [])
+        await self._chat_repo.add_message(session_id, "assistant", reply, None)
+
+        return ChatTurnResponse(
+            session_id=session_id,
+            reply=reply,
+            session_state=fresh_state,
+            filters=_build_filters(fresh_state),
+            products=ProductSearchResponse(
+                items=[], total=0, page=1, page_size=DEFAULT_PAGE_SIZE, has_more=False
+            ),
+            turn_type="fast_path",
+        )
+
     async def _extract_intent(
         self, text: str, current_state: SessionState
     ) -> IntentExtractionResult:

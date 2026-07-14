@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Search, Mic, Heart, ShoppingBag, ArrowRight, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
 // @ts-ignore
 import searchBarBg from '../assets/images/search_bar_bg_1783947191734.jpg';
+import { fetchCollections } from '../api/collections';
+import { ApiCollection } from '../types';
 
 interface DiscoveryScreenProps {
   userName: string;
@@ -12,6 +14,10 @@ interface DiscoveryScreenProps {
   onToggleWishlist: (productId: string) => void;
   onOpenWishlist: () => void;
 }
+
+// Quick-search suggestion chips — clicking one routes into chat search with
+// that phrase as the query (Discovery screen itself has no results grid).
+const QUICK_SEARCH_CHIPS = ['Eid Edit', 'Budget under 50k', 'Subtle embroidery work'];
 
 export default function DiscoveryScreen({
   userName,
@@ -23,24 +29,26 @@ export default function DiscoveryScreen({
 }: DiscoveryScreenProps) {
   const [searchInput, setSearchInput] = useState('');
   const [showProfile, setShowProfile] = useState(false);
-  
-  // Interactive search tag chips
-  const [activeChips, setActiveChips] = useState<string[]>([
-    'Eid Edit',
-    'Budget < 50k',
-    'Subtle Tilla Work'
-  ]);
+  const [activeChips, setActiveChips] = useState<string[]>(QUICK_SEARCH_CHIPS);
+  const [collections, setCollections] = useState<ApiCollection[]>([]);
+
+  useEffect(() => {
+    fetchCollections()
+      .then(setCollections)
+      .catch((error) => console.error('Failed to load collections:', error));
+  }, []);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onEnterChat(searchInput || 'I need an elegant Peshwas for Eid');
+    onEnterChat(searchInput || 'I need an elegant outfit for a special occasion');
   };
 
-  const handleMicClick = () => {
-    setSearchInput('Traditional silk kurta under 50k');
-    setTimeout(() => {
-      onEnterChat('Traditional silk kurta under 50k', { style: 'Kurta', occasion: 'Mehndi & Sangeet', budget: 'Under Rs. 50,000' });
-    }, 600);
+  // Voice note search (Feature 6) is deferred post-MVP — no real
+  // transcription wired up yet.
+  const handleMicClick = () => {};
+
+  const handleChipClick = (chip: string) => {
+    onEnterChat(chip);
   };
 
   const removeChip = (chipToRemove: string) => {
@@ -198,16 +206,22 @@ export default function DiscoveryScreen({
                 </button>
               </form>
 
-              {/* Tag Chips */}
+              {/* Quick-search suggestion chips */}
               {activeChips.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-1.5 pt-1">
                   {activeChips.map((chip) => (
-                    <span 
+                    <span
                       key={chip}
                       className="inline-flex items-center gap-1 bg-white border border-gray-200/60 text-gray-600 text-[10px] font-sans font-medium py-1 px-3 rounded-full"
                     >
-                      <span>{chip}</span>
-                      <button 
+                      <button
+                        type="button"
+                        onClick={() => handleChipClick(chip)}
+                        className="cursor-pointer hover:text-[#003224]"
+                      >
+                        {chip}
+                      </button>
+                      <button
                         type="button"
                         onClick={() => removeChip(chip)}
                         className="hover:text-red-600 transition-colors cursor-pointer ml-1 text-xs font-bold"
@@ -233,6 +247,45 @@ export default function DiscoveryScreen({
 
           </div>
         </div>
+
+        {/* 3. Curated Editorial Collections */}
+        {collections.length > 0 && (
+          <section className="px-6 sm:px-12 pb-16">
+            <div className="max-w-6xl mx-auto space-y-5">
+              <h2 className="font-serif text-xl sm:text-2xl font-bold text-[#1C1B1B]">
+                Curated for you
+              </h2>
+              <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-none -mx-1 px-1">
+                {collections.map((collection) => (
+                  <button
+                    key={collection.id}
+                    onClick={() => onSelectCollection(collection.title)}
+                    className="text-left flex-shrink-0 w-56 bg-white border border-gray-100 rounded-[4px] overflow-hidden shadow-sm hover:border-gray-300 transition-all cursor-pointer"
+                  >
+                    <div className="aspect-[4/3] w-full bg-gray-50 overflow-hidden">
+                      {collection.image_url ? (
+                        <img
+                          src={collection.image_url}
+                          alt={collection.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-[#003224]/5" />
+                      )}
+                    </div>
+                    <div className="p-3.5 space-y-0.5">
+                      <h3 className="font-serif text-sm font-bold text-[#1C1B1B]">{collection.title}</h3>
+                      {collection.subtitle && (
+                        <p className="text-[10px] text-gray-500 font-sans">{collection.subtitle}</p>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
 
       </main>
 

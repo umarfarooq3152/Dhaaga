@@ -67,7 +67,7 @@ async def get_wishlist(
                             )
 
         logger.debug(f"Retrieved wishlist for device {device_id}: {len(hydrated_items)} items")
-        return WishlistResponse(items=hydrated_items)
+        return WishlistResponse(device_id=device_id, items=hydrated_items, total=len(hydrated_items))
     except HTTPException:
         raise
     except Exception as e:

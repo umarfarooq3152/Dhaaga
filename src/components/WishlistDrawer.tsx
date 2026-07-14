@@ -2,12 +2,11 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Heart, Eye, Trash2, ArrowRight } from 'lucide-react';
 import { Product } from '../types';
-import { INITIAL_PRODUCTS } from '../data';
 
 interface WishlistDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  wishlist: string[];
+  wishlistProducts: Product[];
   onToggleWishlist: (productId: string) => void;
   onSelectProduct: (product: Product) => void;
 }
@@ -15,12 +14,11 @@ interface WishlistDrawerProps {
 export default function WishlistDrawer({
   isOpen,
   onClose,
-  wishlist,
+  wishlistProducts,
   onToggleWishlist,
   onSelectProduct
 }: WishlistDrawerProps) {
-  // Retrieve saved products based on the wishlist ids
-  const savedProducts = INITIAL_PRODUCTS.filter((p) => wishlist.includes(p.id));
+  const savedProducts = wishlistProducts;
 
   return (
     <AnimatePresence>
