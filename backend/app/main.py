@@ -190,30 +190,16 @@ def create_app() -> FastAPI:
         return health_status
 
     # Register routers
-    from app.routers import products, devices, brands, wishlist, collections
+    from app.routers import products, devices, brands, wishlist, collections, session
 
     app.include_router(products.router)
     app.include_router(devices.router)
     app.include_router(brands.router)
     app.include_router(wishlist.router)
     app.include_router(collections.router)
+    app.include_router(session.router)
 
     return app
-
-
-app = create_app()
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.debug,
-        log_level=settings.log_level.lower(),
-    )
-
 
 
 app = create_app()

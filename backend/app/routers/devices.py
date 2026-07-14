@@ -27,8 +27,9 @@ async def register_device(
     try:
         repo = DeviceRepository(session)
         device = await repo.get_or_create()
+        await session.commit()
         logger.info(f"Registered device {device.device_id}")
-        return DeviceCreateResponse(device_id=str(device.device_id))
+        return DeviceCreateResponse(device_id=device.device_id, created_at=device.created_at)
     except Exception as e:
         logger.error(f"Failed to register device: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to register device")
@@ -81,8 +82,8 @@ async def update_device_size(
         if not device:
             raise HTTPException(status_code=404, detail="Device not found")
 
-        device = await repo.update_size(device_id, payload.size)
-        await repo.update_last_seen(device_id)
+        await repo.update_size(device_id, payload.size)
+        await session.commit()
 
         logger.info(f"Updated device {device_id} size to {payload.size}")
         return DeviceResponse.from_orm(device)

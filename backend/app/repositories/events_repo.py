@@ -28,7 +28,7 @@ class SessionEventRepository:
             device_id=device_id,
             event_type=event_type,
             product_id=product_id,
-            metadata=metadata or {},
+            event_metadata=metadata or {},
         )
         self.session.add(event)
         await self.session.flush()

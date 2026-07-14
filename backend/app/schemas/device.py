@@ -1,5 +1,6 @@
 """Device schema."""
 
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 from uuid import UUID
@@ -9,7 +10,7 @@ class DeviceCreateResponse(BaseModel):
     """Response when creating a new device."""
 
     device_id: UUID
-    created_at: str
+    created_at: datetime
 
 
 class DeviceSizeUpdate(BaseModel):
@@ -23,8 +24,8 @@ class DeviceResponse(BaseModel):
 
     device_id: UUID
     size: Optional[str] = None
-    created_at: str
-    last_seen_at: str
+    created_at: datetime
+    last_seen_at: datetime
 
     class Config:
         from_attributes = True

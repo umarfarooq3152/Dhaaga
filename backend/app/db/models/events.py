@@ -21,7 +21,9 @@ class SessionEvent(Base):
     )
     event_type: Mapped[str] = mapped_column(String(50), nullable=False)  # turn_fast_path, turn_llm, product_click, etc.
     product_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Python attribute renamed to avoid colliding with SQLAlchemy's reserved
+    # `Base.metadata` — the underlying DB column is still named "metadata".
+    event_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

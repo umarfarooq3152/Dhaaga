@@ -124,8 +124,11 @@ class TestFiltering:
 
     def test_filter_by_size(self, sample_products):
         """Filter products by size."""
-        filtered = _apply_filters(sample_products, size="M")
-        assert len(filtered) == 4  # All have M except one
+        # "M" matches all 5 fixtures, so it wouldn't catch a no-op filter bug —
+        # "XL" only matches alkaram:1 and limelight:2, which actually discriminates.
+        filtered = _apply_filters(sample_products, size="XL")
+        assert len(filtered) == 2
+        assert {p.id for p in filtered} == {"alkaram:1", "limelight:2"}
 
     def test_filter_by_tags(self, sample_products):
         """Filter products by tags (all must match)."""
@@ -135,7 +138,9 @@ class TestFiltering:
     def test_filter_by_price_range(self, sample_products):
         """Filter products by price range."""
         filtered = _apply_filters(sample_products, min_price=3000, max_price=10000)
-        assert len(filtered) == 3  # Products in range
+        # Only limelight:1 (5000) and gul-ahmed:1 (8000) fall in [3000, 10000]
+        assert len(filtered) == 2
+        assert {p.id for p in filtered} == {"limelight:1", "gul-ahmed:1"}
 
 
 class TestSearchService:

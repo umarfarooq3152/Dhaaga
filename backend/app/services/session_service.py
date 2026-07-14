@@ -1,0 +1,209 @@
+"""Chat turn orchestration: fast-path -> query cache -> LLM -> merge -> search."""
+
+import logging
+from uuid import UUID, uuid4
+
+from app.errors import ExternalServiceError
+from app.llm.fallback import FallbackIntentProvider
+from app.nlp.diff_merge import merge_session_state
+from app.nlp.fast_path_classifier import classify
+from app.repositories.brand_repo import BrandRepository
+from app.repositories.chat_repo import ChatRepository
+from app.repositories.events_repo import SessionEventRepository
+from app.repositories.query_cache_repo import QueryCacheRepository
+from app.schemas.product import Product, ProductSearchResponse
+from app.schemas.session import ChatTurnResponse, IntentExtractionResult, SessionState
+from app.services.product_cache_service import ProductCacheService
+from app.services.search_service import SearchService
+from app.session_store.base import SessionStore
+
+logger = logging.getLogger(__name__)
+
+MIN_RESULTS_BEFORE_RELAX = 6
+SHOW_MORE_PAGE_SIZE = 40
+DEFAULT_PAGE_SIZE = 20
+
+
+def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
+    """True if the LLM extracted ANYTHING usable this turn.
+
+    Defense-in-depth against providers that set clarify=true while also
+    asking a follow-up question alongside genuinely useful partial
+    extraction — a real, observed Groq/Llama behavior. Only the true
+    "nothing extractable" case (e.g. "hi") should skip merge + search.
+    """
+    return bool(
+        diff.occasion
+        or diff.color_preference
+        or diff.budget_max is not None
+        or diff.size
+        or diff.urgency_days is not None
+        or diff.style_descriptors
+        or diff.excluded
+    )
+
+
+def _build_filters(state: SessionState) -> dict:
+    """Project SessionState into the frontend's existing FilterChips shape."""
+    style = state.style_descriptors[0].title() if state.style_descriptors else "All Styles"
+    occasion = state.occasion.title() if state.occasion else "All Occasions"
+    budget = f"Under Rs. {state.budget_max:,.0f}" if state.budget_max else "All Budgets"
+    return {"style": style, "occasion": occasion, "budget": budget}
+
+
+def _search_with_relax(
+    products: list[Product], state: SessionState, page_size: int
+) -> ProductSearchResponse:
+    """Run search, progressively relaxing budget then occasion if results
+    are too thin — never return an empty grid when a looser match exists."""
+    query = " ".join(state.style_descriptors)
+
+    def _run(occasion: str | None, max_price: float | None) -> ProductSearchResponse:
+        return SearchService.search(
+            products,
+            query=query,
+            occasion=occasion,
+            color=state.color_preference,
+            size=state.size,
+            max_price=max_price,
+            page=1,
+            page_size=page_size,
+        )
+
+    result = _run(state.occasion, state.budget_max)
+    if result.total >= MIN_RESULTS_BEFORE_RELAX:
+        return result
+
+    if state.budget_max is not None:
+        relaxed = _run(state.occasion, None)
+        if relaxed.total >= MIN_RESULTS_BEFORE_RELAX:
+            return relaxed
+        result = relaxed
+
+    if state.occasion is not None:
+        result = _run(None, None)
+
+    return result
+
+
+class SessionService:
+    """Orchestrates a single chat turn end-to-end."""
+
+    def __init__(
+        self,
+        session_store: SessionStore,
+        fallback_provider: FallbackIntentProvider,
+        chat_repo: ChatRepository,
+        events_repo: SessionEventRepository,
+        query_cache_repo: QueryCacheRepository,
+        brand_repo: BrandRepository,
+        cache_service: ProductCacheService,
+    ):
+        self._session_store = session_store
+        self._fallback_provider = fallback_provider
+        self._chat_repo = chat_repo
+        self._events_repo = events_repo
+        self._query_cache_repo = query_cache_repo
+        self._brand_repo = brand_repo
+        self._cache_service = cache_service
+
+    async def handle_turn(
+        self, session_id: str | None, device_id: UUID | None, text: str
+    ) -> ChatTurnResponse:
+        session_id = session_id or str(uuid4())
+        current_state = await self._session_store.get(session_id) or SessionState()
+        last_results = await self._session_store.get_last_results(session_id)
+
+        await self._chat_repo.add_message(session_id, "user", text, device_id)
+
+        show_more = False
+        fast_match = classify(text, current_state, last_results)
+        if fast_match is not None:
+            diff = fast_match.diff
+            show_more = fast_match.show_more
+            turn_type = "fast_path"
+        else:
+            diff = await self._extract_intent(text, current_state)
+            turn_type = "llm_extraction"
+
+        await self._events_repo.log_event(session_id, f"turn_{turn_type}", device_id)
+
+        if diff.clarify and not _has_any_extracted_field(diff):
+            await self._chat_repo.add_message(
+                session_id, "assistant", diff.assistant_reply, device_id
+            )
+            return ChatTurnResponse(
+                session_id=session_id,
+                reply=diff.assistant_reply,
+                session_state=current_state,
+                filters=_build_filters(current_state),
+                products=ProductSearchResponse(
+                    items=last_results,
+                    total=len(last_results),
+                    page=1,
+                    page_size=DEFAULT_PAGE_SIZE,
+                    has_more=False,
+                ),
+                turn_type=turn_type,
+            )
+
+        new_state = merge_session_state(current_state, diff)
+        all_products = await self._collect_candidate_products(new_state)
+        page_size = SHOW_MORE_PAGE_SIZE if show_more else DEFAULT_PAGE_SIZE
+        result = _search_with_relax(all_products, new_state, page_size)
+
+        await self._session_store.set(session_id, new_state)
+        await self._session_store.set_last_results(session_id, result.items)
+        await self._chat_repo.add_message(
+            session_id, "assistant", diff.assistant_reply, device_id
+        )
+
+        return ChatTurnResponse(
+            session_id=session_id,
+            reply=diff.assistant_reply,
+            session_state=new_state,
+            filters=_build_filters(new_state),
+            products=result,
+            turn_type=turn_type,
+        )
+
+    async def _extract_intent(
+        self, text: str, current_state: SessionState
+    ) -> IntentExtractionResult:
+        normalized = text.strip().lower()
+        cached = await self._query_cache_repo.get_cached(normalized)
+        if cached:
+            return IntentExtractionResult.model_validate(cached)
+
+        try:
+            diff = await self._fallback_provider.extract(text, current_state)
+        except ExternalServiceError:
+            logger.error("Both LLM providers failed; falling back to a clarifying reply")
+            return IntentExtractionResult(
+                assistant_reply=(
+                    "I'm having trouble understanding right now — could you try "
+                    "rephrasing, or tell me the occasion and budget you have in mind?"
+                ),
+                clarify=True,
+            )
+
+        await self._query_cache_repo.cache_extraction(
+            normalized, diff.model_dump(mode="json")
+        )
+        return diff
+
+    async def _collect_candidate_products(self, state: SessionState) -> list[Product]:
+        brands = await self._brand_repo.get_all_active()
+        target_brands = [
+            b
+            for b in brands
+            if b.slug not in state.excluded
+            and (not state.brands or b.slug in state.brands)
+        ]
+
+        all_products: list[Product] = []
+        for brand in target_brands:
+            products = await self._cache_service.get_or_refresh(brand.slug, brand.domain)
+            if products:
+                all_products.extend(products)
+        return all_products

@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     # LLM Providers
     gemini_api_key: str
     groq_api_key: str
+    gemini_model: str = "gemini-2.0-flash"
+    groq_model: str = "llama-3.1-8b-instant"
     gemini_timeout_seconds: float = 1.8
+    groq_timeout_seconds: float = 1.8
 
     # Cache
     redis_url: str

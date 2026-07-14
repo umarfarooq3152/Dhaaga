@@ -8,7 +8,8 @@ dist/
 
 # Backend
 backend/.venv/
-backend/__pycache__/
+**/__pycache__/
+*.pyc
 backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.coverage

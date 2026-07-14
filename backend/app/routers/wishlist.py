@@ -20,7 +20,7 @@ router = APIRouter(prefix="/wishlist", tags=["wishlist"])
 
 @router.get("", response_model=WishlistResponse)
 async def get_wishlist(
-    device_id: UUID = Header(..., description="Device ID from X-Device-Id header"),
+    device_id: UUID = Header(..., alias="X-Device-Id", description="Device ID from X-Device-Id header"),
     session: AsyncSession = Depends(get_session),
     cache_service: ProductCacheService = Depends(create_cache_service),
 ) -> WishlistResponse:
@@ -78,7 +78,7 @@ async def get_wishlist(
 @router.post("/{product_id}", response_model=dict)
 async def add_to_wishlist(
     product_id: str,
-    device_id: UUID = Header(..., description="Device ID"),
+    device_id: UUID = Header(..., alias="X-Device-Id", description="Device ID"),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Add a product to wishlist.
@@ -107,6 +107,7 @@ async def add_to_wishlist(
 
         # Update device last_seen
         await device_repo.update_last_seen(device_id)
+        await session.commit()
 
         logger.info(f"Added {product_id} to wishlist for device {device_id}")
         return {"success": True, "message": "Added to wishlist"}
@@ -120,7 +121,7 @@ async def add_to_wishlist(
 @router.delete("/{product_id}", response_model=dict)
 async def remove_from_wishlist(
     product_id: str,
-    device_id: UUID = Header(..., description="Device ID"),
+    device_id: UUID = Header(..., alias="X-Device-Id", description="Device ID"),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Remove a product from wishlist.
@@ -145,6 +146,7 @@ async def remove_from_wishlist(
 
         # Update device last_seen
         await device_repo.update_last_seen(device_id)
+        await session.commit()
 
         logger.info(f"Removed {product_id} from wishlist for device {device_id}")
         return {"success": True, "message": "Removed from wishlist"}
