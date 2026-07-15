@@ -1,5 +1,6 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const DEVICE_ID_STORAGE_KEY = 'dhaaga_device_id';
+const AUTH_TOKEN_STORAGE_KEY = 'dhaaga_auth_token';
 
 export function getStoredDeviceId(): string | null {
   try {
@@ -17,6 +18,30 @@ export function setStoredDeviceId(id: string): void {
   }
 }
 
+export function getStoredAuthToken(): string | null {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredAuthToken(token: string): void {
+  try {
+    localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+  } catch {
+    // Ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
+export function clearStoredAuthToken(): void {
+  try {
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    // Ignore storage errors (private browsing, quota, etc.)
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -26,9 +51,11 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const deviceId = getStoredDeviceId();
+  const authToken = getStoredAuthToken();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
     ...(deviceId ? { 'X-Device-Id': deviceId } : {}),
+    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
     ...options.headers,
   };
 

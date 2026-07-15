@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Mic, Heart, ShoppingBag, ArrowRight, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { Search, Mic, Heart, ShoppingBag, ArrowRight, User, LogOut, ShieldCheck, LogIn } from 'lucide-react';
 // @ts-ignore
 import searchBarBg from '../assets/images/search_bar_bg_1783947191734.jpg';
 import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 import { fetchCollections } from '../api/collections';
 import { fetchBrands } from '../api/brands';
 import { ApiBrand, ApiCollection } from '../types';
+import { AuthUser } from '../api/auth';
 
 interface DiscoveryScreenProps {
   userName: string;
@@ -16,6 +17,9 @@ interface DiscoveryScreenProps {
   wishlist: string[];
   onToggleWishlist: (productId: string) => void;
   onOpenWishlist: () => void;
+  authUser: AuthUser | null;
+  onOpenAuth: () => void;
+  onLogout: () => void;
 }
 
 // Quick-search suggestion chips — clicking one routes into chat search with
@@ -29,7 +33,10 @@ export default function DiscoveryScreen({
   onSelectCollection,
   wishlist,
   onToggleWishlist,
-  onOpenWishlist
+  onOpenWishlist,
+  authUser,
+  onOpenAuth,
+  onLogout
 }: DiscoveryScreenProps) {
   const [searchInput, setSearchInput] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -131,32 +138,51 @@ export default function DiscoveryScreen({
                       transition={{ duration: 0.15, ease: 'easeOut' }}
                       className="absolute right-0 mt-3 w-56 bg-white border border-gray-200/60 rounded-xl shadow-xl z-50 p-4 text-left font-sans"
                     >
-                      <div className="pb-3 border-b border-gray-100 mb-2">
-                        <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">Account</p>
-                        <p className="font-serif text-sm font-bold text-gray-900 leading-snug">{userName}</p>
-                        <p className="text-[10px] text-gray-500 truncate mt-0.5">umarfarooq3152@gmail.com</p>
-                      </div>
+                      {authUser ? (
+                        <>
+                          <div className="pb-3 border-b border-gray-100 mb-2">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">Account</p>
+                            <p className="font-serif text-sm font-bold text-gray-900 leading-snug">{authUser.name}</p>
+                            <p className="text-[10px] text-gray-500 truncate mt-0.5">{authUser.email}</p>
+                          </div>
 
-                      <div className="space-y-1 text-xs">
-                        <div className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-gray-600 hover:bg-gray-50 cursor-pointer transition-colors">
-                          <ShieldCheck className="w-4 h-4 text-emerald-700" />
-                          <span>Member</span>
-                        </div>
-                        <div className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-gray-600 hover:bg-gray-50 cursor-pointer transition-colors">
-                          <Settings className="w-4 h-4 text-gray-400" />
-                          <span>Settings</span>
-                        </div>
-                        <div 
-                          onClick={() => {
-                            setShowProfile(false);
-                            window.location.reload();
-                          }}
-                          className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-red-600 hover:bg-red-50 cursor-pointer transition-colors mt-1.5 pt-2 border-t border-gray-100"
-                        >
-                          <LogOut className="w-4 h-4" />
-                          <span>Reset</span>
-                        </div>
-                      </div>
+                          <div className="space-y-1 text-xs">
+                            <div className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-gray-600">
+                              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                              <span>Member</span>
+                            </div>
+                            <div
+                              onClick={() => {
+                                setShowProfile(false);
+                                onLogout();
+                              }}
+                              className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-red-600 hover:bg-red-50 cursor-pointer transition-colors mt-1.5 pt-2 border-t border-gray-100"
+                            >
+                              <LogOut className="w-4 h-4" />
+                              <span>Log Out</span>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="pb-3 border-b border-gray-100 mb-2">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-0.5">Account</p>
+                            <p className="text-xs text-gray-600 leading-snug">
+                              Log in to save your wishlist and preferences across devices.
+                            </p>
+                          </div>
+                          <div
+                            onClick={() => {
+                              setShowProfile(false);
+                              onOpenAuth();
+                            }}
+                            className="flex items-center gap-2.5 py-2 px-2 rounded-lg text-[#003224] font-bold hover:bg-gray-50 cursor-pointer transition-colors text-xs"
+                          >
+                            <LogIn className="w-4 h-4" />
+                            <span>Log In / Sign Up</span>
+                          </div>
+                        </>
+                      )}
                     </motion.div>
                   </>
                 )}

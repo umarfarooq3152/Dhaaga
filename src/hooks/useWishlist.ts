@@ -10,8 +10,13 @@ interface UseWishlistResult {
 
 /** Server-backed wishlist, replacing the old pure-localStorage version.
  * Keeps the same `wishlist: string[]` shape existing components already
- * expect, plus hydrated `wishlistProducts` for the drawer. */
-export function useWishlist(deviceId: string | null): UseWishlistResult {
+ * expect, plus hydrated `wishlistProducts` for the drawer.
+ *
+ * `authUserId` is only used to trigger a refetch on login/logout — the
+ * backend itself decides device- vs account-scoped based on the bearer
+ * token, but this hook has no other way to know that token state changed
+ * and the account's (freshly-merged) wishlist should replace what's shown. */
+export function useWishlist(deviceId: string | null, authUserId: string | null = null): UseWishlistResult {
   const [wishlistProducts, setWishlistProducts] = useState<Product[]>([]);
 
   useEffect(() => {
@@ -29,7 +34,7 @@ export function useWishlist(deviceId: string | null): UseWishlistResult {
     return () => {
       cancelled = true;
     };
-  }, [deviceId]);
+  }, [deviceId, authUserId]);
 
   const toggleWishlist = useCallback(
     (productId: string) => {

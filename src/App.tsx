@@ -1,37 +1,49 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, ArrowRightLeft, Settings, X, HelpCircle } from 'lucide-react';
 
 import OnboardingScreen from './components/OnboardingScreen';
 import DiscoveryScreen from './components/DiscoveryScreen';
 import ChatSearchScreen from './components/ChatSearchScreen';
 import ProductDetailScreen from './components/ProductDetailScreen';
 import WishlistDrawer from './components/WishlistDrawer';
+import AuthModal from './components/AuthModal';
 
 import { CurrentScreen, Product } from './types';
 import { useDeviceId } from './hooks/useDeviceId';
 import { useWishlist } from './hooks/useWishlist';
+import { useAuth } from './hooks/useAuth';
 import { updateDeviceSize } from './api/devices';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<CurrentScreen>('onboarding');
   const [userName, setUserName] = useState<string>('Meera');
-  const [preferredSize, setPreferredSize] = useState<string>('M');
   const [department, setDepartment] = useState<'men' | 'women'>('women');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatQuery, setChatQuery] = useState<string>('');
   const [chatFilters, setChatFilters] = useState<{ style?: string, occasion?: string, budget?: string }>({});
 
   const deviceId = useDeviceId();
-  const { wishlist, wishlistProducts, toggleWishlist: handleToggleWishlist } = useWishlist(deviceId);
+  const auth = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const { wishlist, wishlistProducts, toggleWishlist: handleToggleWishlist } = useWishlist(
+    deviceId,
+    auth.user?.id ?? null
+  );
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
-  // Collapse controller for the minor helper switcher
-  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  // Once logged in, an account's saved preferences take over from
+  // whatever was picked in onboarding (which only ever set client-side
+  // state) — mirrors the "wishlist and preferences persist to account" ask.
+  useEffect(() => {
+    if (!auth.user) return;
+    setUserName(auth.user.name);
+    if (auth.user.department === 'men' || auth.user.department === 'women') {
+      setDepartment(auth.user.department);
+    }
+  }, [auth.user]);
 
   const handleOnboardingComplete = (name: string, size: string, dept: 'men' | 'women') => {
     setUserName(name);
-    setPreferredSize(size);
     setDepartment(dept);
     // Per TDD §10, only `size` persists server-side — name stays client-only.
     if (deviceId) {
@@ -55,16 +67,6 @@ export default function App() {
   const handleSelectProduct = (prod: Product) => {
     setSelectedProduct(prod);
     setCurrentScreen('detail');
-  };
-
-  // Switch between screens directly — jumping to 'detail' with nothing
-  // selected yet has nowhere to go, so fall back to discovery instead.
-  const jumpToScreen = (screen: CurrentScreen) => {
-    if (screen === 'detail' && !selectedProduct) {
-      setCurrentScreen('discovery');
-      return;
-    }
-    setCurrentScreen(screen);
   };
 
   return (
@@ -96,6 +98,9 @@ export default function App() {
                 wishlist={wishlist}
                 onToggleWishlist={handleToggleWishlist}
                 onOpenWishlist={() => setIsWishlistOpen(true)}
+                authUser={auth.user}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onLogout={auth.logout}
               />
             )}
             {currentScreen === 'chat' && (
@@ -109,6 +114,9 @@ export default function App() {
                 wishlist={wishlist}
                 onToggleWishlist={handleToggleWishlist}
                 onOpenWishlist={() => setIsWishlistOpen(true)}
+                authUser={auth.user}
+                onOpenAuth={() => setIsAuthModalOpen(true)}
+                onLogout={auth.logout}
               />
             )}
             {currentScreen === 'detail' && selectedProduct && (
@@ -134,69 +142,13 @@ export default function App() {
         onSelectProduct={handleSelectProduct}
       />
 
-      {/* Minor Floating Step Switcher (Collapsible, non-intrusive drawer for review ease) */}
-      <div className="fixed bottom-4 right-4 z-100 flex flex-col items-end gap-2">
-        <AnimatePresence>
-          {isSwitcherOpen && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 10 }}
-              className="bg-[#003224] text-white p-4 rounded-lg shadow-2xl border border-[#004B37] max-w-xs font-sans"
-            >
-              <div className="flex items-center justify-between border-b border-[#004B37] pb-2 mb-2">
-                <div className="flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-                  <span className="text-[10px] uppercase tracking-widest font-bold">Prototype Switcher</span>
-                </div>
-                <button
-                  onClick={() => setIsSwitcherOpen(false)}
-                  className="text-white/70 hover:text-white cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <p className="text-[9px] text-emerald-200/80 mb-3 leading-relaxed">
-                Jump directly between the four core screens of the custom journey:
-              </p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { id: 'onboarding', label: '1. Onboarding' },
-                  { id: 'discovery', label: '2. Discovery' },
-                  { id: 'chat', label: '3. AI Chat' },
-                  { id: 'detail', label: '4. Detail View' }
-                ].map((step) => (
-                  <button
-                    key={step.id}
-                    onClick={() => {
-                      jumpToScreen(step.id as CurrentScreen);
-                      setIsSwitcherOpen(false);
-                    }}
-                    className={`px-2 py-1.5 rounded text-[10px] font-bold text-left transition-all cursor-pointer ${
-                      currentScreen === step.id
-                        ? 'bg-amber-400 text-[#003224]'
-                        : 'bg-[#004B37] hover:bg-emerald-800 text-white'
-                    }`}
-                  >
-                    {step.label}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-3 pt-2 border-t border-[#004B37] flex items-center justify-between text-[9px] text-emerald-200/65">
-                <span>Active User: <strong>{userName}</strong> (Size: {preferredSize})</span>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onLogin={auth.login}
+        onSignup={auth.signup}
+      />
 
-        <button
-          onClick={() => setIsSwitcherOpen(!isSwitcherOpen)}
-          className="bg-[#003224] hover:bg-[#004B37] text-white p-3 rounded-full shadow-lg border border-emerald-600/30 transition-transform hover:scale-105 flex items-center justify-center cursor-pointer"
-          title="Interactive Screen Switcher"
-        >
-          <Settings className="w-5 h-5" />
-        </button>
-      </div>
     </div>
   );
 }
