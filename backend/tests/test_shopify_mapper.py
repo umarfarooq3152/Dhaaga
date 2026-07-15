@@ -142,6 +142,31 @@ class TestMapperBasic:
         result = map_shopify_to_product(SAMPLE_SHOPIFY_PRODUCT, "brand", "domain.pk")
         assert result is not None
 
+    def test_skips_non_apparel_by_category(self):
+        """Real observed case: Gul Ahmed's 'Ideas Home' cushion covers
+        showed up in a wedding lehenga search — non-garment merchandise
+        excluded by product_type."""
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Harmony T-200 Euro Sham Cushion Cover",
+            "product_type": "Ideas Home",
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_non_apparel_by_title_with_no_category(self):
+        """Real observed case: Sana Safinaz sells a notebook with no
+        product_type set at all — must catch this via title, not category."""
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "Inky Bloom Notebook", "product_type": ""}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_perfume_and_jewelry(self):
+        for title in ["P-Statesman Perfume", "Toggle Lock Bracelet", "Vintage Ring Set"]:
+            product = {**SAMPLE_SHOPIFY_PRODUCT, "title": title, "product_type": ""}
+            result = map_shopify_to_product(product, "brand", "domain.pk")
+            assert result is None, f"Expected {title!r} to be excluded as non-apparel"
+
 
 class TestKeywordMatching:
     """Test occasion and tag extraction."""

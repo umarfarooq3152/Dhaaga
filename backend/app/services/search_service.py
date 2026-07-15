@@ -12,38 +12,62 @@ def _brand_slug(product: Product) -> str:
     return product.id.split(":", 1)[0]
 
 
-def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
-    """Interleave results across brands round-robin instead of a flat sort.
+def _round_robin_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
+    """Interleave a single relevance tier across brands round-robin.
 
     A flat sort that falls back to product name on tied scores (the common
-    case for pure structured/budget queries, where every product scores the
-    same 1.0) clusters results by whichever brand's naming convention
-    happens to sort first alphabetically — e.g. many brands name products
-    "2 PIECE ... SUIT", so one brand's catalog can dominate every result.
-    Grouping by brand (sorted by score desc, then price asc within each
-    brand) and round-robining across groups guarantees real brand variety.
+    case within one tier, where every product in it shares the same score)
+    clusters results by whichever brand's naming convention happens to sort
+    first alphabetically — e.g. many brands name products "2 PIECE ... SUIT",
+    so one brand's catalog can dominate every result. Grouping by brand
+    (sorted by price within each brand) and round-robining across groups
+    guarantees real brand variety within this tier.
     """
     groups: dict[str, list[tuple[Product, float]]] = {}
     for product, score in scored:
         groups.setdefault(_brand_slug(product), []).append((product, score))
 
     for group in groups.values():
-        group.sort(key=lambda x: (-x[1], x[0].price))
+        group.sort(key=lambda x: x[0].price)
 
-    # Order brand groups by their best-scoring item first, so a brand with
-    # a genuinely stronger match still leads — diversification changes
-    # *how results interleave*, not which brand is most relevant.
-    ordered_brands = sorted(groups.keys(), key=lambda slug: -groups[slug][0][1])
-
+    brand_order = sorted(groups.keys())
     result: list[Product] = []
     round_idx = 0
-    while any(round_idx < len(groups[slug]) for slug in ordered_brands):
-        for slug in ordered_brands:
+    while any(round_idx < len(groups[slug]) for slug in brand_order):
+        for slug in brand_order:
             if round_idx < len(groups[slug]):
                 result.append(groups[slug][round_idx][0])
         round_idx += 1
 
     return result
+
+
+def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
+    """Rank by relevance tier first, diversifying by brand only *within*
+    each tier — never interleaving irrelevant filler ahead of or alongside
+    genuine matches.
+
+    Real bug this fixes: round-robining across ALL brands regardless of
+    score meant a brand with zero keyword matches for e.g. "lehenga" still
+    contributed its top-priced item into the very first round, surfacing
+    completely unrelated products (a hand towel) ahead of or alongside
+    actual matches. Tiering by score first — relevant (>0) before filler
+    (0) — guarantees relevance always wins; diversification only decides
+    ordering *within* a tier of equally-relevant items.
+    """
+    relevant = [(p, s) for p, s in scored if s > 0]
+    filler = [(p, s) for p, s in scored if s <= 0]
+
+    # Sub-tier the relevant matches by exact score so a perfect match still
+    # outranks a partial one, diversifying by brand within each score level.
+    score_levels = sorted({s for _, s in relevant}, reverse=True)
+    ranked: list[Product] = []
+    for level in score_levels:
+        tier = [(p, s) for p, s in relevant if s == level]
+        ranked.extend(_round_robin_by_brand(tier))
+
+    ranked.extend(_round_robin_by_brand(filler))
+    return ranked
 
 
 def _keyword_score(product: Product, keywords: list[str]) -> float:

@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 UNIT_SALE_PRODUCT_TYPES = {"meter", "meters", "yard", "yards"}
 MIN_PLAUSIBLE_PRICE = 200.0  # backstop against other brands' similar data quirks
 
+# Many Pakistani fashion brands' Shopify stores also sell non-garment
+# merchandise (home textiles, fragrances, jewelry, stationery) in the same
+# catalog. A shopper searching "wedding lehenga" getting a pillow cover back
+# is a real, observed relevance bug (Gul Ahmed's "Ideas Home" cushion line;
+# Maria B perfumes; Sana Safinaz sells a notebook with no category tag at
+# all). Checked against both product_type AND title, since several of these
+# have no product_type set.
+NON_APPAREL_KEYWORDS = [
+    "pillow", "cushion", "bed sheet", "bedsheet", "quilt", "blanket", "curtain",
+    "rug", "showpiece", "vase", "tray", "coaster", "candle", "home decor",
+    "perfume", "fragrance", "cologne", "eau de",
+    "bangle", "bracelet", "necklace", "earring", "jewelry", "jewellery", "ring set",
+    "notebook", "diary", "journal", "sunglasses", "fashion glasses",
+    "wallet", "potli", "mug", "kitchen", "bbq", "eye mask", "sleep mask",
+]
+
+
+def _is_non_apparel(title: str, category: str | None) -> bool:
+    text = f"{title} {category or ''}".lower()
+    return any(keyword in text for keyword in NON_APPAREL_KEYWORDS)
+
 
 def extract_colors(shopify_product: dict[str, Any]) -> list[str]:
     """Extract unique colors from Shopify product options, falling back to
@@ -108,6 +129,10 @@ def map_shopify_to_product(
 
         if category and category.lower() in UNIT_SALE_PRODUCT_TYPES:
             logger.debug(f"Skipping unit-sale product (sold by {category}): {title}")
+            return None
+
+        if _is_non_apparel(title, category):
+            logger.debug(f"Skipping non-apparel product: {title} ({category})")
             return None
 
         # Extract price from first available variant
