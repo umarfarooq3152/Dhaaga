@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from app.schemas.product import Product
 from app.schemas.session import IntentExtractionResult, SessionState
+from app.kids_age import extract_child_age_months
 
 KNOWN_COLORS = [
     "red", "blue", "green", "black", "white", "gold", "maroon", "emerald",
@@ -25,6 +26,7 @@ MORE_FORMAL_PHRASES = ["more formal", "dressier", "fancier"]
 MORE_CASUAL_PHRASES = ["more casual", "less formal", "simpler"]
 DIFFERENT_BRAND_PHRASES = ["different brand", "another brand", "other brands"]
 SHOW_MORE_PHRASES = ["show more", "more options", "more results", "see more"]
+UNSURE_PHRASES = {"unsure", "not sure", "i'm not sure", "i am not sure", "either", "you decide"}
 
 BUDGET_REDUCTION_FACTOR = 0.9
 PRICE_ROUNDING = 1000
@@ -86,6 +88,27 @@ def classify(
     """
     lower = text.lower().strip()
 
+    department = extract_department(lower)
+    if department and _is_department_only_message(lower):
+        label = "women's" if department == "women" else "men's"
+        return FastPathMatch(
+            diff=IntentExtractionResult(
+                department=department,
+                assistant_reply=f"Got it — I'll keep these results to {label} clothing.",
+            )
+        )
+
+    if lower.rstrip(".!?") in UNSURE_PHRASES and current.occasion:
+        return FastPathMatch(
+            diff=IntentExtractionResult(
+                assistant_reply=(
+                    "That's completely fine. Would you prefer something understated, "
+                    "dressy, or heavily festive?"
+                ),
+                clarify=True,
+            )
+        )
+
     if any(phrase in lower for phrase in CHEAPER_PHRASES):
         return _match_cheaper(last_results)
 
@@ -111,13 +134,39 @@ def classify(
     return None
 
 
+def extract_department(lower_text: str) -> str | None:
+    """Extract an explicitly stated apparel audience from a refinement."""
+    if re.search(r"\b(women|woman|women's|womens|ladies|female)\b", lower_text):
+        return "women"
+    if re.search(r"\b(men|man|men's|mens|male)\b", lower_text):
+        return "men"
+    return None
+
+
+def _is_department_only_message(lower_text: str) -> bool:
+    normalized = re.sub(r"[^a-z']+", " ", lower_text).strip()
+    return normalized in {
+        "women", "woman", "women's", "womens", "ladies", "female",
+        "men", "man", "men's", "mens", "male",
+        "for women", "for men", "women's clothing", "womens clothing",
+        "men's clothing", "mens clothing", "i need women's clothing",
+        "i need men's clothing", "show women", "show men",
+    }
+
+
 def _is_color_only_message(lower_text: str, color: str) -> bool:
     """Guard against a color word appearing incidentally inside a longer,
     more complex request that should really go to full LLM extraction
     (e.g. "something like the red one but for a wedding in 3 days").
     """
     word_count = len(lower_text.split())
-    return word_count <= 6
+    compound_terms = {
+        "wedding", "mehndi", "eid", "formal", "casual", "party",
+        "lehenga", "kurta", "shalwar", "kameez", "sherwani", "shirt",
+        "dress", "suit", "women", "woman", "women's", "men", "man", "men's",
+    }
+    words = set(re.findall(r"[a-z']+", lower_text))
+    return word_count <= 6 and not (words - {color}) & compound_terms
 
 
 def is_kids_request(text: str) -> bool:
@@ -127,6 +176,9 @@ def is_kids_request(text: str) -> bool:
     the message's extraction, so occasion/color/style are still picked up
     normally alongside the kids signal."""
     lower_text = text.lower().strip()
+
+    if extract_child_age_months(text) is not None:
+        return True
 
     if any(keyword in lower_text for keyword in KIDS_KEYWORDS):
         return True

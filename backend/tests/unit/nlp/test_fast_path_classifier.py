@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.kids_age import extract_child_age_months
 from app.nlp.fast_path_classifier import classify, is_kids_request
 from app.schemas.product import Product
 from app.schemas.session import SessionState
@@ -39,6 +40,15 @@ def test_is_kids_request_by_age():
     # extracts the rest of the message (occasion/color/style).
     text = "I want to dress up my 2 year old daughter in something pink and traditional"
     assert is_kids_request(text) is True
+    assert extract_child_age_months(text) == 24
+
+
+def test_extracts_child_age_in_months():
+    assert extract_child_age_months("an outfit for my 18 month old son") == 18
+
+
+def test_does_not_extract_unrelated_duration_as_child_age():
+    assert extract_child_age_months("I've been shopping here for 2 years") is None
 
 
 def test_is_kids_request_by_keyword():
@@ -134,3 +144,20 @@ def test_show_more_sets_flag_without_state_mutation():
     assert match.show_more is True
     assert match.diff.occasion is None
     assert match.diff.budget_max is None
+
+
+def test_explicit_womenswear_refinement_is_deterministic():
+    match = classify("I need women's clothing", SessionState(department="men"), [])
+    assert match is not None
+    assert match.diff.department == "women"
+
+
+def test_compound_gender_query_falls_through_for_full_extraction():
+    assert classify("women's red wedding lehenga", SessionState(), []) is None
+
+
+def test_unsure_category_gets_a_formality_path():
+    match = classify("not sure", SessionState(occasion="wedding"), [])
+    assert match is not None
+    assert match.diff.clarify is True
+    assert "understated" in match.diff.assistant_reply

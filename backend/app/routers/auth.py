@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.db.connection import get_session
 from app.db.models.user import User
 from app.dependencies import get_current_user
-from app.main import limiter
+from app.rate_limit import limiter
 from app.repositories.user_repo import UserRepository
 from app.repositories.wishlist_repo import WishlistRepository
 from app.schemas.auth import (

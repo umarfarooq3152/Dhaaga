@@ -143,3 +143,25 @@ def test_department_persists_across_merge():
     diff = IntentExtractionResult(occasion="eid", budget_max=20000, assistant_reply="ok")
     result = merge_session_state(current, diff)
     assert result.department == "men"
+
+
+def test_explicit_department_overwrites_and_persists():
+    current = SessionState(department="men", occasion="wedding")
+    changed = merge_session_state(
+        current, IntentExtractionResult(department="women", assistant_reply="ok")
+    )
+    assert changed.department == "women"
+    persisted = merge_session_state(changed, IntentExtractionResult(assistant_reply="ok"))
+    assert persisted.department == "women"
+
+
+def test_child_age_overwrites_and_then_persists():
+    current = SessionState(wants_kids=True, child_age_months=24)
+    changed = merge_session_state(
+        current,
+        IntentExtractionResult(child_age_months=36, assistant_reply="ok"),
+    )
+    assert changed.child_age_months == 36
+
+    persisted = merge_session_state(changed, IntentExtractionResult(assistant_reply="ok"))
+    assert persisted.child_age_months == 36

@@ -7,7 +7,9 @@ from uuid import UUID, uuid4
 from app.errors import ExternalServiceError
 from app.llm.fallback import FallbackIntentProvider
 from app.nlp.diff_merge import merge_session_state
-from app.nlp.fast_path_classifier import classify, is_kids_request
+from app.kids_age import extract_age_ranges, extract_child_age_months
+from app.nlp.fast_path_classifier import classify, extract_department, is_kids_request
+from app.nlp.pakistani_events import extract_event, is_known_event
 from app.repositories.brand_repo import BrandRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.events_repo import SessionEventRepository
@@ -20,9 +22,8 @@ from app.session_store.base import SessionStore
 
 logger = logging.getLogger(__name__)
 
-MIN_RESULTS_BEFORE_RELAX = 10
-SHOW_MORE_PAGE_SIZE = 40
-DEFAULT_PAGE_SIZE = 20
+MIN_RESULTS_BEFORE_RELAX = 10  # retained for compatibility/telemetry
+DEFAULT_PAGE_SIZE = 40
 
 # How many of {occasion, budget, color/style/garment, size} must be known
 # before showing products at all, rather than asking another follow-up.
@@ -48,6 +49,16 @@ def _no_results_reply(state: SessionState) -> str:
     something specific enough that nothing in the current catalog matches
     it, rather than the query just being too vague to narrow (that case
     never reaches a search at all, see MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS)."""
+    if state.child_age_months is not None:
+        age = (
+            f"{state.child_age_months} months"
+            if state.child_age_months < 24
+            else f"{state.child_age_months // 12} years"
+        )
+        return (
+            f"I'm sorry, we don't currently have an option explicitly sized for age {age} "
+            "that matches the rest of your request. I won't substitute an older child's size."
+        )
     described = state.style_descriptors[-1] if state.style_descriptors else None
     what = described or (state.occasion.title() if state.occasion else "that")
     return (
@@ -86,6 +97,12 @@ def _gate_reply(state: SessionState) -> str:
     return acknowledgment + "Could you tell me a bit more — what occasion is this for, or what's your budget?"
 
 
+def _department_gate_reply(state: SessionState) -> str:
+    known = state.occasion or (state.style_descriptors[-1] if state.style_descriptors else None)
+    prefix = f"I’ve noted {known}. " if known else ""
+    return prefix + "Should I look in women’s or men’s clothing?"
+
+
 def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
     """True if the LLM extracted ANYTHING usable this turn.
 
@@ -103,6 +120,8 @@ def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
         or diff.style_descriptors
         or diff.excluded
         or diff.wants_kids
+        or diff.child_age_months is not None
+        or diff.department is not None
     )
 
 
@@ -130,6 +149,11 @@ def _build_filters(
         filters["color"] = effective_color.title()
     if effective_size:
         filters["size"] = effective_size
+    if state.child_age_months is not None:
+        months = state.child_age_months
+        filters["age"] = (
+            f"{months} months" if months < 24 else f"{months // 12} years"
+        )
     return filters
 
 
@@ -147,20 +171,12 @@ class RelaxedSearch:
 def _search_with_relax(
     products: list[Product], state: SessionState, page_size: int
 ) -> RelaxedSearch:
-    """Run search, progressively relaxing the most restrictive filters if
-    results are too thin — never return a sparse grid when a looser match
-    exists. Order: budget, then occasion, then color, then size — each
-    step relaxes exactly one *additional* filter and only if the result
-    is still thin, carrying forward whatever was already relaxed.
+    """Run an exact search without silently discarding shopper constraints.
 
-    Real bug this fixes: the color/size step used to unconditionally
-    replace the result with a fully-unfiltered search (dropping occasion
-    and budget too, even if those were never re-checked) any time color
-    or size were merely *set*, regardless of whether the occasion+budget-
-    relaxed result had already cleared the threshold. A shopper asking
-    for "pink wedding wear" would see the reply claim "updated to pink"
-    while the actual grid silently dropped the color filter entirely and
-    showed red/purple/grey items instead.
+    Color, budget, size, and occasion are promises made by the result chips.
+    A small (or empty) exact set is preferable to filling the grid with items
+    that contradict those promises. The RelaxedSearch wrapper remains part of
+    the response contract, but all dropped flags are deliberately false.
     """
     query = " ".join(state.style_descriptors)
 
@@ -177,35 +193,22 @@ def _search_with_relax(
             page=1,
             page_size=page_size,
             kids=state.wants_kids,
+            child_age_months=state.child_age_months,
+            department=state.department,
         )
 
-    occasion, budget, color, size = state.occasion, state.budget_max, state.color_preference, state.size
+    occasion, budget = state.occasion, state.budget_max
+    color, size = state.color_preference, state.size
     result = _run(occasion, budget, color, size)
-
-    if result.total < MIN_RESULTS_BEFORE_RELAX and budget is not None:
-        budget = None
-        result = _run(occasion, budget, color, size)
-
-    if result.total < MIN_RESULTS_BEFORE_RELAX and occasion is not None:
-        occasion = None
-        result = _run(occasion, budget, color, size)
-
-    if result.total < MIN_RESULTS_BEFORE_RELAX and color is not None:
-        color = None
-        result = _run(occasion, budget, color, size)
-
-    if result.total < MIN_RESULTS_BEFORE_RELAX and size is not None:
-        size = None
-        result = _run(occasion, budget, color, size)
 
     return RelaxedSearch(
         result=result,
         effective_color=color,
         effective_size=size,
-        dropped_occasion=state.occasion is not None and occasion is None,
-        dropped_budget=state.budget_max is not None and budget is None,
-        dropped_color=state.color_preference is not None and color is None,
-        dropped_size=state.size is not None and size is None,
+        dropped_occasion=False,
+        dropped_budget=False,
+        dropped_color=False,
+        dropped_size=False,
     )
 
 
@@ -258,12 +261,14 @@ class SessionService:
         device_id: UUID | None,
         text: str,
         department: str | None = None,
+        client_state: SessionState | None = None,
     ) -> ChatTurnResponse:
         session_id = session_id or str(uuid4())
-        current_state = await self._session_store.get(session_id) or SessionState()
-        # Department comes directly from onboarding, not the LLM/fast-path
-        # diff pipeline — explicit overwrite here, separate from merge_session_state.
-        if department is not None:
+        stored_state = await self._session_store.get(session_id)
+        current_state = stored_state or client_state or SessionState()
+        # Onboarding seeds the audience once. An explicit conversational
+        # clarification can then overwrite it and must survive later turns.
+        if department is not None and current_state.department is None:
             current_state = current_state.model_copy(update={"department": department})
         last_results = await self._session_store.get_last_results(session_id)
 
@@ -286,6 +291,24 @@ class SessionService:
         # kids-shopping conversation doesn't reset the persisted signal.
         if is_kids_request(text):
             diff.wants_kids = True
+        explicit_department = extract_department(text.lower())
+        if explicit_department is not None:
+            diff.department = explicit_department
+        explicit_event = extract_event(text)
+        if explicit_event is not None:
+            diff.occasion = explicit_event
+        child_age_months = extract_child_age_months(text)
+        if child_age_months is not None:
+            diff.child_age_months = child_age_months
+            # Groq sometimes duplicates "2 years old" into size="2 years".
+            # Age is handled by the stricter range filter; leaving the duplicate
+            # in the generic size field makes relaxation claim that age was
+            # dropped even though it was correctly retained.
+            if diff.size and any(
+                start <= child_age_months <= end
+                for start, end in extract_age_ranges([diff.size])
+            ):
+                diff.size = None
 
         await self._events_repo.log_event(session_id, f"turn_{turn_type}", device_id)
 
@@ -310,12 +333,30 @@ class SessionService:
 
         new_state = merge_session_state(current_state, diff)
 
+        if new_state.department is None and not new_state.wants_kids:
+            reply = _department_gate_reply(new_state)
+            await self._session_store.set(session_id, new_state)
+            await self._chat_repo.add_message(session_id, "assistant", reply, device_id)
+            return ChatTurnResponse(
+                session_id=session_id,
+                reply=reply,
+                session_state=new_state,
+                filters=_build_filters(new_state, new_state.color_preference, new_state.size),
+                products=ProductSearchResponse(
+                    items=[], total=0, page=1, page_size=DEFAULT_PAGE_SIZE, has_more=False
+                ),
+                turn_type=turn_type,
+            )
+
         # Don't show a grab-bag on a vague query — ask another follow-up
         # instead until enough is known to narrow well. Once the threshold
         # is crossed, known signals persist across turns (merge_session_state
         # accumulates/overwrites, never silently clears), so this never
         # re-hides results already being shown.
-        if _known_signal_count(new_state) < MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS:
+        if (
+            _known_signal_count(new_state) < MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS
+            and not is_known_event(new_state.occasion)
+        ):
             # Fast-path replies ("Updated to pink") assume they're always
             # showing refined results — true when refining an ongoing
             # conversation, false if this fast-path match happens to be the
@@ -338,7 +379,9 @@ class SessionService:
             )
 
         all_products = await self._collect_candidate_products(new_state)
-        page_size = SHOW_MORE_PAGE_SIZE if show_more else DEFAULT_PAGE_SIZE
+        # "Show more" means the whole exact set for this catalog snapshot,
+        # not a second arbitrary cap that still hides available matches.
+        page_size = max(len(all_products), DEFAULT_PAGE_SIZE) if show_more else DEFAULT_PAGE_SIZE
         relaxed = _search_with_relax(all_products, new_state, page_size)
         result = relaxed.result
 
@@ -433,5 +476,15 @@ class SessionService:
         for brand in target_brands:
             products = await self._cache_service.get_or_refresh(brand.slug, brand.domain)
             if products:
+                # A gendered brand supplies a reliable fallback when individual
+                # Shopify products omit audience tags. Unisex brands retain
+                # product-level metadata so mixed catalogs can still be filtered.
+                if brand.department in {"men", "women"}:
+                    products = [
+                        product if product.department is not None else product.model_copy(
+                            update={"department": brand.department}
+                        )
+                        for product in products
+                    ]
                 all_products.extend(products)
         return all_products

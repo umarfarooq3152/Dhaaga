@@ -18,6 +18,7 @@ class SessionState(BaseModel):
     brands: list[str] = Field(default_factory=list)  # empty = all active brands
     department: Optional[str] = None  # 'men' | 'women' | 'unisex' — from onboarding
     wants_kids: bool = False  # shopping for a child — filters TO kids items, not away from them
+    child_age_months: Optional[int] = Field(None, ge=0, le=215)
 
 
 class IntentExtractionResult(BaseModel):
@@ -31,6 +32,12 @@ class IntentExtractionResult(BaseModel):
     urgency_days: Optional[int] = None
     excluded: list[str] = Field(default_factory=list)
     wants_kids: Optional[bool] = None  # set deterministically in code, not by the LLM — see fast_path_classifier.is_kids_request
+    child_age_months: Optional[int] = Field(None, ge=0, le=215)
+    department: Optional[str] = Field(
+        None,
+        pattern="^(men|women)$",
+        description="Explicit menswear/womenswear audience stated in this turn.",
+    )
     assistant_reply: str = Field(..., description="Generated assistant response")
     clarify: bool = Field(default=False, description="True if clarification needed")
 
@@ -41,6 +48,10 @@ class ChatTurnRequest(BaseModel):
     query: str = Field(..., min_length=1)
     session_id: Optional[str] = None  # If None, create new session
     department: Optional[str] = None  # set from onboarding, not LLM-extracted
+    session_state: Optional[SessionState] = Field(
+        None,
+        description="Client's last acknowledged state, used only if server state expired.",
+    )
 
 
 class SessionResetRequest(BaseModel):

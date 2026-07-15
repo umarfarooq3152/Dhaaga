@@ -1,12 +1,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { resetSession as resetSessionApi, sendSessionMessage } from '../api/session';
-import { FilterChips, Message, Product } from '../types';
+import { FilterChips, Message, Product, SessionState } from '../types';
 
 const DEFAULT_FILTERS: FilterChips = {
   style: 'All Styles',
   occasion: 'All Occasions',
   budget: 'All Budgets',
 };
+
+const CHAT_SNAPSHOT_KEY = 'dhaaga-chat-snapshot-v1';
+
+interface ChatSnapshot {
+  entryQuery: string;
+  sessionId: string | null;
+  messages: Message[];
+  products: Product[];
+  filters: FilterChips;
+  sessionState: SessionState | null;
+}
+
+function loadSnapshot(): ChatSnapshot | null {
+  try {
+    const raw = localStorage.getItem(CHAT_SNAPSHOT_KEY)
+      ?? sessionStorage.getItem(CHAT_SNAPSHOT_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as ChatSnapshot;
+  } catch {
+    return null;
+  }
+}
 
 function nowStr(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -53,11 +75,17 @@ export function useSessionChat(
   initialQuery?: string,
   initialFilters?: { style?: string; occasion?: string; budget?: string }
 ): UseSessionChatResult {
-  const sessionIdRef = useRef<string | null>(null);
-  const hasTriggeredInitialRef = useRef(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [filters, setFilters] = useState<FilterChips>(DEFAULT_FILTERS);
+  const entryQuery = composeInitialQuery(initialQuery, initialFilters);
+  const initialSnapshotRef = useRef<ChatSnapshot | null>(loadSnapshot());
+  const sessionIdRef = useRef<string | null>(initialSnapshotRef.current?.sessionId ?? null);
+  const sessionStateRef = useRef<SessionState | null>(initialSnapshotRef.current?.sessionState ?? null);
+  const hasTriggeredInitialRef = useRef(
+    initialSnapshotRef.current !== null
+      && (!entryQuery || initialSnapshotRef.current.entryQuery === entryQuery)
+  );
+  const [messages, setMessages] = useState<Message[]>(initialSnapshotRef.current?.messages ?? []);
+  const [filteredProducts, setFilteredProducts] = useState<Product[]>(initialSnapshotRef.current?.products ?? []);
+  const [filters, setFilters] = useState<FilterChips>(initialSnapshotRef.current?.filters ?? DEFAULT_FILTERS);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isProductsLoading, setIsProductsLoading] = useState(false);
 
@@ -74,9 +102,10 @@ export function useSessionChat(
     setIsChatLoading(true);
     setIsProductsLoading(true);
 
-    sendSessionMessage(sessionIdRef.current, text, department)
+    sendSessionMessage(sessionIdRef.current, text, department, sessionStateRef.current)
       .then((result) => {
         sessionIdRef.current = result.sessionId;
+        sessionStateRef.current = result.sessionState;
         setFilters(result.filters);
         setFilteredProducts(result.products);
         setMessages((prev) => [
@@ -120,12 +149,14 @@ export function useSessionChat(
       setMessages([welcomeMessage]);
       setFilteredProducts([]);
       setFilters(DEFAULT_FILTERS);
+      sessionStateRef.current = null;
       return;
     }
 
     setIsChatLoading(true);
     resetSessionApi(sessionIdRef.current)
       .then((result) => {
+        sessionStateRef.current = result.sessionState;
         setFilters(result.filters);
         setFilteredProducts(result.products);
         setMessages([{ ...welcomeMessage, text: result.reply }]);
@@ -147,6 +178,8 @@ export function useSessionChat(
     const initial = composeInitialQuery(initialQuery, initialFilters);
     if (initial) {
       sendMessage(initial);
+    } else if (initialSnapshotRef.current) {
+      return;
     } else {
       setMessages([
         {
@@ -161,6 +194,30 @@ export function useSessionChat(
     // component previously had.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const snapshot: ChatSnapshot = {
+      entryQuery,
+      sessionId: sessionIdRef.current,
+      messages,
+      products: filteredProducts,
+      filters,
+      sessionState: sessionStateRef.current,
+    };
+    try {
+      localStorage.setItem(CHAT_SNAPSHOT_KEY, JSON.stringify(snapshot));
+      sessionStorage.removeItem(CHAT_SNAPSHOT_KEY);
+    } catch (error) {
+      try {
+        localStorage.setItem(
+          CHAT_SNAPSHOT_KEY,
+          JSON.stringify({ ...snapshot, products: snapshot.products.slice(0, 40) })
+        );
+      } catch {
+        console.warn('Could not persist the current chat snapshot:', error);
+      }
+    }
+  }, [entryQuery, messages, filteredProducts, filters]);
 
   return { messages, filteredProducts, filters, isChatLoading, isProductsLoading, sendMessage, resetSession };
 }

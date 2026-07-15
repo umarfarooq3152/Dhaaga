@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from app.schemas.product import Product
+from app.nlp.pakistani_events import infer_product_event
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +17,7 @@ OCCASION_KEYWORDS = {
     "mehndi": ["mehndi", "henna", "pre-wedding", "sangeet"],
     "wedding": [
         "wedding", "bridal", "bride", "groom", "nikah", "walima",
-        "shendi"
+        "shendi", "lehenga"
     ],
     "formal": [
         "formal", "party", "evening", "dinner", "gala", "corporate",
@@ -60,7 +61,11 @@ def extract_occasion(product: Product) -> str:
     (e.g. "Eid Edit 26") more reliably than scanning the scraped
     description's boilerplate copy.
     """
-    text = f"{product.name} {product.description} {' '.join(product.shopify_tags)}".lower()
+    event = infer_product_event(product)
+    if event:
+        return event
+
+    text = f"{product.name} {product.category or ''} {product.description} {' '.join(product.shopify_tags)}".lower()
 
     # Score each occasion
     scores = {}
@@ -78,7 +83,7 @@ def extract_occasion(product: Product) -> str:
 def extract_tags(product: Product) -> list[str]:
     """Extract material, style, and other relevant tags from product,
     including the merchant's own Shopify tags as a signal."""
-    text = f"{product.name} {product.description} {' '.join(product.shopify_tags)}".lower()
+    text = f"{product.name} {product.category or ''} {product.description} {' '.join(product.shopify_tags)}".lower()
     tags = []
 
     # Check material keywords

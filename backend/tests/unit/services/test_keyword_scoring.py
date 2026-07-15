@@ -20,13 +20,18 @@ def _product(
     description: str = "",
     category: str | None = None,
     shopify_tags: list[str] | None = None,
+    colors: list[str] | None = None,
+    department: str | None = None,
+    color_images: dict[str, str] | None = None,
 ) -> Product:
     return Product(
         id=f"{brand}:{external_id}",
         name=name,
         description=description,
         price=price,
-        colors=[],
+        colors=colors or [],
+        department=department,
+        color_images=color_images or {},
         sizes=[],
         occasion="casual",
         category=category,
@@ -113,3 +118,62 @@ def test_shopify_tags_match_ranks_above_description_only_match():
 
     assert result.items[0].name == "Basic Pique Top"
     assert result.items[-1].name == "Random Top"
+
+
+def test_daaku_vibe_maps_to_relevant_apparel_instead_of_empty_results():
+    kurta = _product("brand-a", "1", "Textured Kurta", 4000, category="Kurta")
+    unrelated = _product("brand-b", "1", "Basic T-Shirt", 1200, category="T-Shirts")
+
+    result = SearchService.search(
+        [kurta, unrelated], query="dress up like a bandit for daaku day", page_size=10
+    )
+
+    assert result.items == [kurta]
+
+
+def test_specific_color_collapses_base_and_color_named_duplicate():
+    base = _product("brand-a", "1", "Classic Oxford Shirt", 3000, colors=["Black"])
+    black = _product("brand-a", "2", "Classic Oxford Shirt Black", 3200, colors=["Black"])
+
+    result = SearchService.search([base, black], query="shirt", color="black", page_size=10)
+
+    assert result.total == 1
+    assert len(result.items) == 1
+
+
+def test_color_filter_never_returns_another_color():
+    yellow = _product("brand-a", "1", "Summer Dress", 3000, colors=["Yellow"])
+    blue = _product("brand-b", "1", "Summer Dress", 2800, colors=["Blue"])
+    yellow_shirt = _product("brand-c", "1", "Oxford Shirt", 2500, colors=["Yellow"])
+
+    result = SearchService.search(
+        [yellow, blue, yellow_shirt], query="dress", color="yellow", page_size=10
+    )
+
+    assert result.items == [yellow]
+
+
+def test_color_filter_uses_matching_variant_image():
+    product = _product(
+        "brand-a", "1", "Summer Dress", 3000,
+        colors=["Blue", "Yellow"],
+        color_images={
+            "blue": "https://example.com/blue.jpg",
+            "yellow": "https://example.com/yellow.jpg",
+        },
+    )
+
+    result = SearchService.search([product], query="dress", color="yellow", page_size=10)
+
+    assert result.items[0].image == "https://example.com/yellow.jpg"
+
+
+def test_womenswear_filter_excludes_explicit_menswear_product():
+    womens = _product("brand-a", "1", "Linen Kurta", 3000, department="women")
+    mens = _product("brand-b", "1", "Linen Kurta", 2800, department="men")
+
+    result = SearchService.search(
+        [mens, womens], query="kurta", department="women", page_size=10
+    )
+
+    assert result.items == [womens]

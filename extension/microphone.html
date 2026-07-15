@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Enable microphone — Dhaaga</title>
+    <link rel="stylesheet" href="microphone.css" />
+  </head>
+  <body>
+    <main class="permission-card" aria-labelledby="permission-title">
+      <img src="assets/dhaaga-logo.png" alt="Dhaaga" class="logo" />
+      <p class="eyebrow">Voice search setup</p>
+      <h1 id="permission-title">Enable your microphone</h1>
+      <p id="permission-message" class="support-copy">
+        Dhaaga needs microphone access only while you record a voice request. Audio is sent for transcription and is not stored by Dhaaga.
+      </p>
+      <div class="actions">
+        <button id="enable-microphone" type="button">Enable microphone</button>
+        <button id="close-setup" class="secondary" type="button" hidden>Close this tab</button>
+      </div>
+      <p id="permission-status" class="status" role="status" aria-live="polite"></p>
+    </main>
+    <script type="module" src="microphone.js"></script>
+  </body>
+</html>

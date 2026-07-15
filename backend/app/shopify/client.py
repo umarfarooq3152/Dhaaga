@@ -30,25 +30,25 @@ class ShopifyClient:
         self.timeout = timeout
 
     async def fetch_products(
-        self, domain: str, limit: int = 250, cursor: str | None = None
+        self, domain: str, limit: int = 250, page: int = 1
     ) -> dict[str, Any]:
         """Fetch products from a Shopify storefront.
         
         Args:
             domain: Brand domain (e.g., 'limelight.pk')
             limit: Max products per page (max 250)
-            cursor: Pagination cursor for next page
+            page: One-indexed page number. Shopify's public products endpoint
+                supports page-based pagination; it does not include a cursor
+                in the response body.
             
         Returns:
-            Response dict with keys: products, cursor (if paginated)
+            Response dict with a products list
             
         Raises:
             aiohttp.ClientError: On network/HTTP errors
         """
         url = f"https://{domain}/products.json"
-        params = {"limit": min(limit, 250)}
-        if cursor:
-            params["cursor"] = cursor
+        params = {"limit": min(max(limit, 1), 250), "page": max(page, 1)}
 
         try:
             headers = {"User-Agent": BROWSER_USER_AGENT}
@@ -73,7 +73,7 @@ class ShopifyClient:
             return {"products": []}
 
     async def fetch_all_products(
-        self, domain: str, max_pages: int = 20
+        self, domain: str, max_pages: int = 20, max_products: int | None = None
     ) -> list[dict[str, Any]]:
         """Fetch all products from a brand, handling pagination.
         
@@ -85,27 +85,45 @@ class ShopifyClient:
             List of all product objects
         """
         all_products = []
-        cursor = None
         page_count = 0
+        seen_ids: set[str] = set()
+        page_size = 250
 
         while page_count < max_pages:
-            response = await self.fetch_products(domain, cursor=cursor)
+            response = await self.fetch_products(
+                domain, limit=page_size, page=page_count + 1
+            )
             products = response.get("products", [])
 
-            if not products:
+            if not isinstance(products, list) or not products:
                 break
 
-            all_products.extend(products)
+            new_products = []
+            for product in products:
+                product_id = str(product.get("id", "")) if isinstance(product, dict) else ""
+                if not product_id or product_id in seen_ids:
+                    continue
+                seen_ids.add(product_id)
+                new_products.append(product)
+
+            # A storefront returning the same page repeatedly must not create
+            # an unbounded loop or duplicate catalog entries.
+            if not new_products:
+                break
+
+            all_products.extend(new_products)
             page_count += 1
 
-            # Check for pagination cursor
-            cursor = response.get("cursor")
-            if not cursor:
+            if max_products is not None and len(all_products) >= max_products:
+                all_products = all_products[:max_products]
+                break
+
+            if len(products) < page_size:
                 break
 
             logger.debug(
                 f"Fetched page {page_count} from {domain}: "
-                f"{len(products)} products, "
+                f"{len(new_products)} new products, "
                 f"total: {len(all_products)}"
             )
 
@@ -114,4 +132,3 @@ class ShopifyClient:
             f"in {page_count} pages"
         )
         return all_products
-

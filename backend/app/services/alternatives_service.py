@@ -3,6 +3,7 @@
 import logging
 from typing import Any
 
+from app.kids_age import products_have_compatible_ages
 from app.schemas.product import Product, ProductSearchResponse
 
 logger = logging.getLogger(__name__)
@@ -136,6 +137,11 @@ class AlternativesService:
         filtered = [
             p for p in candidates
             if p.id != reference_product.id
+            and p.is_kids == reference_product.is_kids
+            and (
+                not reference_product.is_kids
+                or products_have_compatible_ages(reference_product, p)
+            )
         ]
 
         # Optionally exclude same brand

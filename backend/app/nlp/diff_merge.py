@@ -66,6 +66,11 @@ def merge_session_state(
         deadline_date=deadline_date,
         excluded=_dedup(current.excluded + diff.excluded),
         brands=current.brands,
-        department=current.department,
+        department=diff.department if diff.department is not None else current.department,
         wants_kids=diff.wants_kids if diff.wants_kids is not None else current.wants_kids,
+        child_age_months=(
+            diff.child_age_months
+            if diff.child_age_months is not None
+            else current.child_age_months
+        ),
     )

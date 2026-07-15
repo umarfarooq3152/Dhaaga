@@ -182,6 +182,12 @@ export default function ChatSearchScreen({
               <button onClick={() => removeFilter('size')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
             </span>
           )}
+          {filters.age && (
+            <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <span>Age: {filters.age}</span>
+              <button onClick={() => removeFilter('age')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
+            </span>
+          )}
           {storyStep > 0 && (
             <button
               onClick={resetAllFilters}

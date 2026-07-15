@@ -12,6 +12,10 @@ class Product(BaseModel):
     description: Optional[str] = None
     price: float
     colors: list[str] = Field(default_factory=list)
+    color_images: dict[str, str] = Field(
+        default_factory=dict,
+        description="Lowercase color option to its variant-specific image URL.",
+    )
     sizes: list[str] = Field(default_factory=list)
     occasion: Optional[str] = None
     category: Optional[str] = Field(None, description="Garment type, e.g. Shopify product_type")
@@ -33,6 +37,15 @@ class Product(BaseModel):
             "in an adult's search, but specifically filtered FOR when a "
             "shopper's message indicates they're buying for a child."
         ),
+    )
+    department: Optional[str] = Field(
+        None,
+        pattern="^(men|women|unisex)$",
+        description="Product-level audience inferred from merchant metadata.",
+    )
+    age_ranges_months: list[tuple[int, int]] = Field(
+        default_factory=list,
+        description="Explicit child-size age ranges, stored as inclusive months.",
     )
     image: str
     secondaryImage: Optional[str] = None

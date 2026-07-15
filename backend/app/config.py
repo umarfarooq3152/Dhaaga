@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = 1.8
     groq_timeout_seconds: float = 1.8
 
+    # Browser extension MVP
+    extension_allowed_domains: str = "outfitters.com.pk,www.outfitters.com.pk"
+    extension_allowed_origins: str = ""
+    extension_catalog_max_products: int = 500
+    extension_catalog_cache_ttl_minutes: int = 15
+    extension_request_timeout_seconds: float = 25.0
+    extension_rank_candidate_limit: int = 40
+    extension_result_limit: int = 40
+
     # Cache
     redis_url: str
 

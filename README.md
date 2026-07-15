@@ -90,6 +90,34 @@ npm run dev
 
 Frontend runs at `http://localhost:3000`.
 
+### Chrome extension MVP
+
+The MV3 extension is isolated under `extension/`. It searches only the active
+Outfitters tab for the MVP, has no content script, and never manipulates the
+store page. Groq credentials remain in the FastAPI backend; do not add an API
+key to extension source, storage, or build output.
+
+Start the backend, then build the unpacked extension:
+
+```bash
+cd extension
+npm install
+npm run typecheck
+npm test
+npm run build
+```
+
+Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**,
+and select `extension/dist`. The development manifest connects to
+`http://localhost:8000`; update both `src/config.ts` and `manifest.json` when
+pointing at a deployed HTTPS backend.
+
+Voice requests are capped at 30 seconds in the popup and 5 MB at the backend.
+Audio is sent to the backend and Groq for transcription, then discarded by
+Dhaaga. Typed queries, transcripts, and product results are held only in
+`chrome.storage.session` for short-lived popup recovery; there is no search
+history. Product images are loaded from merchant CDNs with no referrer.
+
 ### Local Redis (for development)
 
 ```bash

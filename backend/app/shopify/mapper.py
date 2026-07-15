@@ -2,8 +2,10 @@
 
 import logging
 import re
+from html import unescape
 from typing import Any
 
+from app.kids_age import extract_age_ranges
 from app.schemas.product import Product
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ NON_APPAREL_KEYWORDS = [
     "perfume", "fragrance", "cologne", "eau de",
     "bangle", "bracelet", "necklace", "earring", "jewelry", "jewellery", "ring set",
     "notebook", "diary", "journal", "sunglasses", "fashion glasses",
+    "mehndi stencil", "henna stencil", "stencil",
     "wallet", "potli", "mug", "kitchen", "bbq", "eye mask", "sleep mask",
     # Footwear — a real observed case (Outfitters' "Closed Shoes" category)
     # showing up in what should be a clothing-only catalog.
@@ -56,6 +59,34 @@ NON_APPAREL_KEYWORDS = [
 # check rather than a title keyword.
 KIDS_KEYWORDS = ["kids", "kid", "boys", "girls", "boy", "girl", "toddler", "infant", "newborn"]
 KIDS_CATEGORY_PREFIXES = ("btk",)
+
+WOMEN_AUDIENCE_WORDS = ["women", "woman", "womens", "ladies", "female"]
+MEN_AUDIENCE_WORDS = ["men", "man", "mens", "male", "gents"]
+
+
+def html_to_plain_text(raw_html: str) -> str:
+    """Convert merchant HTML to readable, safe plain text for the UI.
+
+    Shopify descriptions frequently contain nested lists and editor-only
+    attributes. Sending that markup as a normal React text node exposes the
+    literal ``<ul><li>`` tags. Preserve block boundaries, remove scripts and
+    tags, decode entities, and normalize whitespace at ingestion instead.
+    """
+    if not raw_html:
+        return ""
+    without_unsafe_blocks = re.sub(
+        r"<(script|style)\b[^>]*>.*?</\1>", " ", raw_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    with_breaks = re.sub(
+        r"<br\s*/?>|</(?:p|li|div|h[1-6]|tr|ul|ol)\s*>",
+        "\n",
+        without_unsafe_blocks,
+        flags=re.IGNORECASE,
+    )
+    text = unescape(re.sub(r"<[^>]+>", " ", with_breaks))
+    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
+    return "\n".join(line for line in lines if line)
 
 
 def _extract_shopify_tags(shopify_product: dict[str, Any]) -> list[str]:
@@ -87,6 +118,19 @@ def _is_kids_apparel(
     # Junior", "Girls Toddler") independent of the brand-level department.
     text = f"{title} {category_lower} {' '.join(shopify_tags)} {vendor or ''}".lower()
     return any(_contains_word(keyword, text) for keyword in KIDS_KEYWORDS)
+
+
+def _product_department(
+    title: str, category: str | None, shopify_tags: list[str], vendor: str | None
+) -> str | None:
+    text = f"{title} {category or ''} {' '.join(shopify_tags)} {vendor or ''}".lower()
+    women = any(_contains_word(word, text) for word in WOMEN_AUDIENCE_WORDS)
+    men = any(_contains_word(word, text) for word in MEN_AUDIENCE_WORDS)
+    if women and not men:
+        return "women"
+    if men and not women:
+        return "men"
+    return None
 
 
 def _is_fully_out_of_stock(shopify_product: dict[str, Any]) -> bool:
@@ -157,6 +201,32 @@ def extract_sizes(shopify_product: dict[str, Any]) -> list[str]:
     return sorted(list(sizes)) if sizes else ["One Size"]
 
 
+def extract_color_images(shopify_product: dict[str, Any]) -> dict[str, str]:
+    """Map color option values to variant images when Shopify provides them."""
+    color_option_index = None
+    for index, option in enumerate(shopify_product.get("options", []), start=1):
+        if option.get("name", "").lower() in {"color", "colour"}:
+            color_option_index = index
+            break
+    if color_option_index is None:
+        return {}
+
+    images_by_id = {
+        str(image.get("id")): image.get("src", "")
+        for image in shopify_product.get("images", [])
+        if image.get("id") and image.get("src")
+    }
+    result: dict[str, str] = {}
+    for variant in shopify_product.get("variants", []):
+        color = str(variant.get(f"option{color_option_index}") or "").strip().lower()
+        featured = variant.get("featured_image") or {}
+        src = featured.get("src") if isinstance(featured, dict) else None
+        src = src or images_by_id.get(str(variant.get("image_id")))
+        if color and src and color not in result:
+            result[color] = src
+    return result
+
+
 def extract_images(shopify_product: dict[str, Any]) -> tuple[str, str | None]:
     """Extract primary and secondary product images."""
     images = shopify_product.get("images", [])
@@ -188,7 +258,7 @@ def map_shopify_to_product(
     try:
         product_id = str(shopify_product.get("id", ""))
         title = (shopify_product.get("title") or "").strip()
-        description = (shopify_product.get("body_html") or "").strip()
+        description = html_to_plain_text(shopify_product.get("body_html") or "")
         handle = shopify_product.get("handle", "")
         category = (shopify_product.get("product_type") or "").strip() or None
         vendor = (shopify_product.get("vendor") or "").strip() or None
@@ -217,6 +287,7 @@ def map_shopify_to_product(
         # filters TO them only when a shopper's message indicates they're
         # buying for a child (see SearchService / wants_kids).
         is_kids = _is_kids_apparel(title, category, shopify_tags, vendor)
+        department = _product_department(title, category, shopify_tags, vendor)
 
         # Extract price from first available variant
         price = 0.0
@@ -233,7 +304,13 @@ def map_shopify_to_product(
             return None
 
         colors = extract_colors(shopify_product)
+        color_images = extract_color_images(shopify_product)
         sizes = extract_sizes(shopify_product)
+        age_ranges_months = (
+            extract_age_ranges([*sizes, *shopify_tags, title, category or "", vendor or ""])
+            if is_kids
+            else []
+        )
         primary_image, secondary_image = extract_images(shopify_product)
 
         if not primary_image:
@@ -254,12 +331,15 @@ def map_shopify_to_product(
             description=description,
             price=price,
             colors=colors,
+            color_images=color_images,
             sizes=sizes,
             occasion="",  # Will be filled by keyword_matcher
             category=category,
             tags=[],  # Will be filled by keyword_matcher
             shopify_tags=shopify_tags,
             is_kids=is_kids,
+            department=department,
+            age_ranges_months=age_ranges_months,
             image=primary_image,
             secondaryImage=secondary_image,
             product_url=product_url,

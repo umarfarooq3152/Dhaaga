@@ -4,7 +4,13 @@ import pytest
 
 from app.nlp.keyword_matcher import extract_occasion, extract_tags, tag_product
 from app.schemas.product import Product
-from app.shopify.mapper import extract_colors, extract_sizes, map_shopify_to_product
+from app.shopify.mapper import (
+    extract_colors,
+    extract_color_images,
+    extract_sizes,
+    html_to_plain_text,
+    map_shopify_to_product,
+)
 
 
 # Sample Shopify product
@@ -65,6 +71,26 @@ class TestColorExtraction:
         colors = extract_colors({})
         assert colors == ["Default"]
 
+    def test_extracts_variant_specific_color_images(self):
+        product = {
+            "options": [{"name": "Color", "values": ["Blue", "Yellow"]}],
+            "images": [],
+            "variants": [
+                {
+                    "option1": "Blue",
+                    "featured_image": {"src": "https://example.com/blue.jpg"},
+                },
+                {
+                    "option1": "Yellow",
+                    "featured_image": {"src": "https://example.com/yellow.jpg"},
+                },
+            ],
+        }
+        assert extract_color_images(product) == {
+            "blue": "https://example.com/blue.jpg",
+            "yellow": "https://example.com/yellow.jpg",
+        }
+
 
 class TestSizeExtraction:
     """Test size extraction from Shopify products."""
@@ -95,6 +121,33 @@ class TestSizeExtraction:
 
 class TestMapperBasic:
     """Test basic Shopify to Product mapping."""
+
+    def test_shopify_description_html_becomes_readable_plain_text(self):
+        raw = (
+            '<ul><li><p data-path-to-node="3,0,0"><b>Adjustable Waist</b> – '
+            'Smooth tailored fit.</p></li><li><p><b>Premium Fabric</b> – '
+            'Wrinkle-free fabric.</p></li></ul>'
+        )
+        text = html_to_plain_text(raw)
+
+        assert "<ul>" not in text
+        assert "data-path-to-node" not in text
+        assert text.splitlines() == [
+            "Adjustable Waist – Smooth tailored fit.",
+            "Premium Fabric – Wrinkle-free fabric.",
+        ]
+
+    def test_maps_explicit_kids_age_ranges(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Toddler Embroidered Suit",
+            "tags": ["Kids", "1-2Y", "3-4Y"],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+
+        assert result is not None
+        assert result.is_kids is True
+        assert result.age_ranges_months == [(12, 35), (36, 59)]
 
     def test_map_basic_product(self):
         """Map a valid Shopify product."""
@@ -194,6 +247,14 @@ class TestMapperBasic:
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is None
 
+    def test_skips_mehndi_stencils_from_apparel_catalog(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Reusable Mehndi Stencil Set",
+            "product_type": "Accessories",
+        }
+        assert map_shopify_to_product(product, "brand", "domain.pk") is None
+
     def test_tags_kids_apparel_by_title(self):
         # Real observed case: Gul Ahmed's "Toddler Boy Multi Sweatshirt"
         # and "Junior Boy Clay Printed Sweatshirt" surfaced in a plain
@@ -252,6 +313,7 @@ class TestMapperBasic:
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is not None
         assert result.shopify_tags == ["Women", "Summer-26", "New In", "Embroidered"]
+        assert result.department == "women"
 
     def test_tags_kids_apparel_by_vendor(self):
         # Real observed case: Zellbury and Outfitters use `vendor` as a
@@ -339,7 +401,19 @@ class TestKeywordMatching:
             product_url="",
         )
         occasion = extract_occasion(product)
-        assert occasion == "wedding"
+        assert occasion == "baraat"
+
+    def test_lehenga_category_is_classified_as_wedding(self):
+        product = Product(
+            id="test:lehenga",
+            name="Embroidered Look 12",
+            category="Lehenga",
+            description="",
+            price=50000,
+            image="",
+            product_url="",
+        )
+        assert extract_occasion(product) == "wedding"
 
     def test_extract_tags_material(self):
         """Extract material tags."""

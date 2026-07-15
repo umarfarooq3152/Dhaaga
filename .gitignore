@@ -1,6 +1,9 @@
 # Frontend
 node_modules/
 dist/
+extension/test-results/
+extension/playwright-report/
+extension/coverage/
 .env
 .env.local
 .DS_Store

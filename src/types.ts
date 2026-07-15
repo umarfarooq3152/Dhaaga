@@ -25,6 +25,7 @@ export interface ApiProduct {
   sizes: string[];
   occasion: string | null;
   category: string | null;
+  department?: 'men' | 'women' | 'unisex' | null;
   tags: string[];
   image: string;
   secondaryImage: string | null;
@@ -49,13 +50,15 @@ export interface SessionState {
   excluded: string[];
   brands: string[];
   department: string | null;
+  wants_kids: boolean;
+  child_age_months: number | null;
 }
 
 export interface ChatTurnResponse {
   session_id: string;
   reply: string;
   session_state: SessionState;
-  filters: { style: string; occasion: string; budget: string; color?: string; size?: string };
+  filters: { style: string; occasion: string; budget: string; color?: string; size?: string; age?: string };
   products: ApiProductSearchResponse;
   turn_type: 'fast_path' | 'llm_extraction';
 }
@@ -101,6 +104,7 @@ export interface FilterChips {
   budget: string;
   color?: string;
   size?: string;
+  age?: string;
 }
 
 export type Platform = 'desktop' | 'mobile';

@@ -4,6 +4,8 @@ import logging
 import re
 from typing import Any
 
+from app.kids_age import product_supports_age
+from app.nlp.pakistani_events import event_match_score
 from app.schemas.product import Product, ProductSearchResponse
 
 logger = logging.getLogger(__name__)
@@ -18,6 +20,16 @@ logger = logging.getLogger(__name__)
 CATEGORY_MATCH_WEIGHT = 1.0
 SHOPIFY_TAGS_MATCH_WEIGHT = 0.75
 DESCRIPTION_MATCH_WEIGHT = 0.25
+
+QUERY_ALIASES: dict[str, list[str]] = {
+    "daaku": ["kurta", "waistcoat", "shawl", "shalwar"],
+    "daku": ["kurta", "waistcoat", "shawl", "shalwar"],
+    "bandit": ["kurta", "waistcoat", "shawl", "shalwar"],
+}
+GENERIC_QUERY_WORDS = {
+    "a", "an", "the", "for", "to", "like", "me", "my", "day",
+    "outfit", "outfits", "clothes", "clothing",
+}
 
 
 def _contains_word(keyword: str, text: str) -> bool:
@@ -123,7 +135,7 @@ def _keyword_score(product: Product, keywords: list[str]) -> float:
     name = product.name.lower()
     category = (product.category or "").lower()
     tags_text = " ".join(product.shopify_tags).lower()
-    description = product.description.lower()
+    description = (product.description or "").lower()
 
     score = 0.0
     for kw in keywords:
@@ -138,6 +150,37 @@ def _keyword_score(product: Product, keywords: list[str]) -> float:
     return score / len(keywords)
 
 
+def _query_keywords(query: str) -> list[str]:
+    normalized_query = re.sub(r"\bdress(?:ed)?\s+up\b", " ", query.lower())
+    raw = re.findall(r"[a-zA-Z0-9'-]+", normalized_query)
+    expanded: list[str] = []
+    for word in raw:
+        key = word.strip("'-")
+        if key in QUERY_ALIASES:
+            expanded.extend(QUERY_ALIASES[key])
+        elif key not in GENERIC_QUERY_WORDS:
+            expanded.append(key)
+    return list(dict.fromkeys(expanded))
+
+
+def _dedupe_color_variants(products: list[Product], requested_color: str | None) -> list[Product]:
+    """Collapse same-design cards that a merchant split by color."""
+    if not requested_color:
+        return products
+    color = requested_color.lower()
+    seen: set[tuple[str, str]] = set()
+    result: list[Product] = []
+    for product in products:
+        title = re.sub(rf"\b{re.escape(color)}\b", " ", product.name.lower())
+        title = re.sub(r"\b(default|colour|color|variant)\b", " ", title)
+        normalized_title = re.sub(r"[^a-z0-9]+", " ", title).strip()
+        key = (_brand_slug(product), normalized_title)
+        if key not in seen:
+            seen.add(key)
+            result.append(product)
+    return result
+
+
 def _apply_filters(
     products: list[Product],
     occasion: str | None = None,
@@ -147,6 +190,8 @@ def _apply_filters(
     max_price: float | None = None,
     min_price: float | None = None,
     kids: bool = False,
+    child_age_months: int | None = None,
+    department: str | None = None,
 ) -> list[Product]:
     """Apply structured filters to products.
 
@@ -169,14 +214,34 @@ def _apply_filters(
     """
     filtered = [p for p in products if p.is_kids == kids]
 
+    if department:
+        filtered = [
+            p for p in filtered
+            if p.department is None or p.department in {department, "unisex"}
+        ]
+
+    if child_age_months is not None:
+        # Age is a hard safety/relevance constraint. Products with unknown
+        # age metadata are excluded rather than guessed, and this filter is
+        # never relaxed by SessionService when the result set is small.
+        filtered = [
+            p for p in filtered
+            if p.is_kids and product_supports_age(p, child_age_months)
+        ]
+
     if occasion:
-        filtered = [p for p in filtered if p.occasion == occasion.lower()]
+        filtered = [p for p in filtered if event_match_score(p, occasion) > 0]
 
     if color:
         color_lower = color.lower()
         filtered = [
             p for p in filtered
             if any(color_lower in c.lower() for c in p.colors)
+        ]
+        filtered = [
+            p.model_copy(update={"image": p.color_images[color_lower]})
+            if color_lower in p.color_images else p
+            for p in filtered
         ]
 
     if size:
@@ -214,6 +279,8 @@ class SearchService:
         page: int = 1,
         page_size: int = 20,
         kids: bool = False,
+        child_age_months: int | None = None,
+        department: str | None = None,
     ) -> ProductSearchResponse:
         """Search products with keyword scoring and filters.
 
@@ -235,7 +302,7 @@ class SearchService:
             Paginated ProductSearchResponse with scored results
         """
         # Parse keywords from query
-        keywords = [kw.strip() for kw in query.split() if kw.strip()]
+        keywords = _query_keywords(query)
 
         # Apply filters
         filtered = _apply_filters(
@@ -247,18 +314,23 @@ class SearchService:
             max_price=max_price,
             min_price=min_price,
             kids=kids,
+            child_age_months=child_age_months,
+            department=department,
         )
 
         # Score by keyword matches
-        scored = [
-            (product, _keyword_score(product, keywords))
-            for product in filtered
-        ]
+        scored = []
+        for product in filtered:
+            keyword_score = _keyword_score(product, keywords)
+            occasion_score = event_match_score(product, occasion) if occasion else 0.0
+            scored.append((product, keyword_score + occasion_score))
 
         # Diversify across brands rather than a flat score/name sort (see
         # _diversify_by_brand — a flat sort clusters results by whichever
         # brand's product-naming convention wins ties alphabetically).
-        ranked_products = _diversify_by_brand(scored)
+        ranked_products = _dedupe_color_variants(
+            _diversify_by_brand(scored), requested_color=color
+        )
 
         # Paginate
         total = len(ranked_products)
@@ -281,6 +353,7 @@ class SearchService:
         page: int = 1,
         page_size: int = 20,
         kids: bool = False,
+        child_age_months: int | None = None,
     ) -> ProductSearchResponse:
         """Filter products by brand slugs.
 
@@ -297,7 +370,9 @@ class SearchService:
         """
         filtered = [
             p for p in products
-            if p.is_kids == kids and any(p.id.startswith(f"{slug}:") for slug in brand_slugs)
+            if p.is_kids == kids
+            and (child_age_months is None or product_supports_age(p, child_age_months))
+            and any(p.id.startswith(f"{slug}:") for slug in brand_slugs)
         ]
 
         total = len(filtered)

@@ -7,14 +7,23 @@ from fastapi import APIRouter, HTTPException, Request, UploadFile, File
 from groq import AsyncGroq
 
 from app.config import get_settings
-from app.main import limiter
+from app.rate_limit import limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/voice", tags=["voice"])
 
 WHISPER_MODEL = "whisper-large-v3-turbo"
-MAX_AUDIO_BYTES = 25 * 1024 * 1024  # Groq's own upload limit
+MAX_AUDIO_BYTES = 5 * 1024 * 1024
+ALLOWED_AUDIO_TYPES = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/m4a",
+}
 
 
 @router.post("/transcribe")
@@ -34,6 +43,9 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> di
         raise HTTPException(status_code=400, detail="Empty audio file")
     if len(audio_bytes) > MAX_AUDIO_BYTES:
         raise HTTPException(status_code=400, detail="Audio file too large")
+    content_type = (file.content_type or "").split(";", 1)[0].lower()
+    if content_type not in ALLOWED_AUDIO_TYPES:
+        raise HTTPException(status_code=415, detail="Unsupported audio format")
 
     try:
         settings = get_settings()

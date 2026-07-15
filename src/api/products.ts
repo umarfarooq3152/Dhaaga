@@ -1,6 +1,7 @@
 import { api } from './client';
 import { getBrandNameMap } from './brands';
 import { ApiProduct, ApiProductSearchResponse, Product } from '../types';
+import { htmlToPlainText } from '../utils/plainText';
 
 function brandSlugFromId(productId: string): string {
   return productId.split(':')[0] ?? productId;
@@ -16,7 +17,7 @@ export async function toProduct(apiProduct: ApiProduct): Promise<Product> {
     price: apiProduct.price,
     image: apiProduct.image,
     secondaryImage: apiProduct.secondaryImage ?? undefined,
-    description: apiProduct.description ?? '',
+    description: htmlToPlainText(apiProduct.description ?? ''),
     category: apiProduct.category ?? 'Apparel',
     tags: apiProduct.tags,
     colors: apiProduct.colors,

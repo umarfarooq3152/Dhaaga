@@ -274,3 +274,31 @@ class TestAlternativesService:
             # First alternative should have similar tags/occasion
             first = alternatives[0]
             assert first.occasion in ["eid", "casual", "mehndi"]  # Same tradition
+
+    def test_kids_alternatives_require_overlapping_age_range(self):
+        reference = Product(
+            id="kids:1", name="Toddler Kurta", description="", price=2000,
+            sizes=["2-3Y"], is_kids=True, image="https://example.com/1.jpg",
+            product_url="https://example.com/1",
+        )
+        toddler = Product(
+            id="kids:2", name="Toddler Shirt", description="", price=2200,
+            sizes=["1-2Y"], is_kids=True, image="https://example.com/2.jpg",
+            product_url="https://example.com/2",
+        )
+        junior = Product(
+            id="kids:3", name="Junior Shirt", description="", price=2200,
+            sizes=["10-12Y"], is_kids=True, image="https://example.com/3.jpg",
+            product_url="https://example.com/3",
+        )
+        adult = Product(
+            id="adult:1", name="Adult Shirt", description="", price=2200,
+            sizes=["M"], is_kids=False, image="https://example.com/4.jpg",
+            product_url="https://example.com/4",
+        )
+
+        alternatives = AlternativesService.get_alternatives(
+            reference, [reference, toddler, junior, adult], limit=10,
+        )
+
+        assert [product.id for product in alternatives] == ["kids:2"]

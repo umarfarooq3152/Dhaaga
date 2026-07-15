@@ -17,7 +17,7 @@ import { updateDeviceSize } from './api/devices';
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<CurrentScreen>('onboarding');
   const [userName, setUserName] = useState<string>('Meera');
-  const [department, setDepartment] = useState<'men' | 'women'>('women');
+  const [department, setDepartment] = useState<'men' | 'women' | undefined>(undefined);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatQuery, setChatQuery] = useState<string>('');
   const [chatFilters, setChatFilters] = useState<{ style?: string, occasion?: string, budget?: string }>({});

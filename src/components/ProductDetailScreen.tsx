@@ -303,7 +303,7 @@ export default function ProductDetailScreen({
             {/* Product Narrative */}
             <div className="space-y-2 border-t border-gray-100 pt-4">
               <span className="text-xs uppercase tracking-wider text-gray-500 font-bold font-sans">Artisanship & Fabric</span>
-              <p className="text-xs text-gray-600 leading-relaxed font-sans">{product.description}</p>
+              <p className="text-xs text-gray-600 leading-relaxed font-sans whitespace-pre-line">{product.description}</p>
               <div className="flex flex-wrap gap-1.5 pt-2">
                 {product.tags.map(t => (
                   <span key={t} className="bg-white border border-gray-200 text-gray-500 text-[9px] font-sans py-0.5 px-2 rounded-full">
@@ -377,7 +377,7 @@ export default function ProductDetailScreen({
                 {/* Description */}
                 <div className="space-y-2 border-t border-gray-100 pt-4">
                   <span className="text-xs uppercase tracking-wider text-gray-400 font-bold font-sans block">Craftsmanship Story</span>
-                  <p className="text-xs text-gray-600 leading-relaxed font-sans">{product.description}</p>
+                  <p className="text-xs text-gray-600 leading-relaxed font-sans whitespace-pre-line">{product.description}</p>
                   <div className="flex gap-1.5 pt-1">
                     {product.tags.map(t => (
                       <span key={t} className="bg-[#FCF9F8] border border-gray-200 text-gray-500 text-[10px] font-sans py-0.5 px-2.5 rounded-full">

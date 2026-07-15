@@ -6,7 +6,7 @@ export interface SessionMessageResult {
   sessionId: string;
   reply: string;
   sessionState: SessionState;
-  filters: { style: string; occasion: string; budget: string };
+  filters: { style: string; occasion: string; budget: string; color?: string; size?: string; age?: string };
   products: Product[];
   total: number;
   turnType: 'fast_path' | 'llm_extraction';
@@ -27,12 +27,14 @@ async function toResult(response: ChatTurnResponse): Promise<SessionMessageResul
 export async function sendSessionMessage(
   sessionId: string | null,
   query: string,
-  department?: 'men' | 'women'
+  department?: 'men' | 'women',
+  sessionState?: SessionState | null
 ): Promise<SessionMessageResult> {
   const response = await api.post<ChatTurnResponse>('/session/message', {
     session_id: sessionId,
     query,
     department: department ?? null,
+    session_state: sessionState ?? null,
   });
   return toResult(response);
 }

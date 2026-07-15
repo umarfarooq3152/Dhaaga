@@ -10,15 +10,15 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
 from sqlalchemy import text
 
 from app.config import get_settings
 from app.db.connection import init_db, close_db, get_session_maker
 from app.errors import DhaagaException
+from app.rate_limit import limiter
 from app.repositories.brand_repo import BrandRepository
 from app.services.product_cache_service import (
     create_cache_service,
@@ -28,9 +28,6 @@ from app.services.product_cache_service import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-
-# Global rate limiter
-limiter = Limiter(key_func=get_remote_address)
 
 # Global cache service (initialized on startup)
 _cache_service: ProductCacheService | None = None
@@ -116,10 +113,19 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Add CORS middleware
+    # The extension's production id can be configured explicitly. During
+    # unpacked development Chrome assigns a chrome-extension:// origin, so a
+    # narrow scheme/id regex is allowed; endpoint rate limits and exact store
+    # domain validation remain the actual abuse/SSRF boundaries.
+    extension_origins = [
+        origin.strip()
+        for origin in settings.extension_allowed_origins.split(",")
+        if origin.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_origin],
+        allow_origins=[settings.frontend_origin, *extension_origins],
+        allow_origin_regex=r"chrome-extension://[a-p]{32}",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*", "X-Device-Id"],
@@ -194,7 +200,17 @@ def create_app() -> FastAPI:
         return health_status
 
     # Register routers
-    from app.routers import products, devices, brands, wishlist, collections, session, auth, voice
+    from app.routers import (
+        auth,
+        brands,
+        collections,
+        devices,
+        extension,
+        products,
+        session,
+        voice,
+        wishlist,
+    )
 
     app.include_router(products.router)
     app.include_router(devices.router)
@@ -204,6 +220,7 @@ def create_app() -> FastAPI:
     app.include_router(session.router)
     app.include_router(auth.router)
     app.include_router(voice.router)
+    app.include_router(extension.router)
 
     return app
 
