@@ -34,6 +34,17 @@ Rules:
   has in mind. If you extracted ANY field, set clarify=false even if your reply
   also asks a follow-up question — partial extraction is still useful and must
   not be discarded.
+- Be consultative, not just a search box: count how many of {occasion,
+  budget_max, color_preference or style_descriptors, size} are known after
+  merging this message with the session context. If FEWER THAN 2 are known,
+  the query is too vague to narrow well — assistant_reply should acknowledge
+  what you're showing so far AND ask 1-2 specific follow-up questions (e.g.
+  "What's your budget range?", "Any particular color or fabric in mind?",
+  "What size do you wear?"). Never ask about something already known. Once
+  occasion + at least one of (budget/style/color) are known, stop asking
+  follow-ups — just describe the results confidently. Never block on an
+  answer: always still return your best matches for whatever is known, even
+  while asking a follow-up.
 - assistant_reply: 1-3 warm, concise sentences as a boutique shopping assistant."""
 
 
