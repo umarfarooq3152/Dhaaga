@@ -31,6 +31,36 @@ def test_no_match_falls_through_to_none():
     assert classify("something totally unrelated to any pattern", SessionState(), []) is None
 
 
+def test_kids_request_by_age_extracts_nothing_and_clarifies():
+    # Real bug: the LLM didn't reliably follow a "no kids catalog" prompt
+    # instruction, extracting a nonsensical size="kids" and surfacing
+    # adult womenswear as if it matched a toddler's outfit. This must be
+    # a deterministic, code-level guarantee instead.
+    text = "I want to dress up my 2 year old daughter in something pink and traditional"
+    match = classify(text, SessionState(), [])
+    assert match is not None
+    assert match.diff.clarify is True
+    assert match.diff.occasion is None
+    assert match.diff.color_preference is None
+    assert match.diff.style_descriptors == []
+    assert "kids" in match.diff.assistant_reply.lower() or "adult" in match.diff.assistant_reply.lower()
+
+
+def test_kids_request_by_keyword():
+    for text in ["need a toddler outfit for eid", "looking for kids clothes", "something for my newborn"]:
+        match = classify(text, SessionState(), [])
+        assert match is not None, f"expected a kids-request match for {text!r}"
+        assert match.diff.clarify is True
+
+
+def test_adult_age_does_not_trigger_kids_request():
+    match = classify("something for my 25 year old sister's wedding", SessionState(), [])
+    # Not a kids match — either falls through to None or matches some
+    # other pattern, but must never be treated as a kids request.
+    if match is not None:
+        assert match.diff.clarify is False or match.diff.occasion is not None
+
+
 def test_cheaper_computes_budget_from_min_price(last_results):
     match = classify("can you show cheaper ones?", SessionState(), last_results)
     assert match is not None

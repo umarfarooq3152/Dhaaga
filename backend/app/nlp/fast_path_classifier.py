@@ -7,6 +7,7 @@ cache/LLM path.
 """
 
 import math
+import re
 from dataclasses import dataclass
 
 from app.schemas.product import Product
@@ -27,6 +28,20 @@ SHOW_MORE_PHRASES = ["show more", "more options", "more results", "see more"]
 
 BUDGET_REDUCTION_FACTOR = 0.9
 PRICE_ROUNDING = 1000
+
+# Dhaaga has no kids' catalog at all (menswear/womenswear adult sizing
+# only) — this is a deterministic, code-level guarantee rather than an
+# LLM prompt instruction, since the LLM (especially the Groq fallback)
+# was observed not reliably following the "don't show adult clothing for
+# a child" instruction, extracting a nonsensical size="kids" and
+# surfacing adult womenswear as if it matched a toddler's outfit.
+KIDS_KEYWORDS = [
+    "toddler", "infant", "newborn", "baby girl", "baby boy",
+    "kids outfit", "kids clothes", "kid's", "kids'",
+    "children's wear", "childrens wear", "children's clothing",
+]
+KIDS_AGE_PATTERN = re.compile(r"\b(\d{1,2})\s*[- ]?years?[- ]?old\b")
+KIDS_MAX_AGE = 12
 
 
 @dataclass
@@ -65,6 +80,9 @@ def classify(
     """
     lower = text.lower().strip()
 
+    if _is_kids_request(lower):
+        return _match_kids_request()
+
     if any(phrase in lower for phrase in CHEAPER_PHRASES):
         return _match_cheaper(last_results)
 
@@ -97,6 +115,30 @@ def _is_color_only_message(lower_text: str, color: str) -> bool:
     """
     word_count = len(lower_text.split())
     return word_count <= 6
+
+
+def _is_kids_request(lower_text: str) -> bool:
+    if any(keyword in lower_text for keyword in KIDS_KEYWORDS):
+        return True
+    match = KIDS_AGE_PATTERN.search(lower_text)
+    return match is not None and int(match.group(1)) <= KIDS_MAX_AGE
+
+
+def _match_kids_request() -> FastPathMatch:
+    """Dhaaga has no kids' catalog at all — say so plainly instead of
+    letting adult clothing be shown as if it matched a child's outfit.
+    clarify=True with nothing extracted short-circuits straight to a
+    reply with no search, via the same early-return path off-topic
+    messages use in session_service.handle_turn."""
+    diff = IntentExtractionResult(
+        assistant_reply=(
+            "I'm sorry, Dhaaga currently only carries menswear and womenswear in "
+            "adult sizing — we don't have a kids' catalog yet. I can help you find "
+            "something for yourself or another adult instead, if that's useful!"
+        ),
+        clarify=True,
+    )
+    return FastPathMatch(diff=diff)
 
 
 def _match_cheaper(last_results: list[Product]) -> FastPathMatch | None:

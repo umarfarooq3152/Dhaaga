@@ -28,9 +28,15 @@ def merge_session_state(
 
     Rules (TDD §6):
     - occasion/color_preference/size/budget_max: explicit new values overwrite.
-    - style_descriptors/excluded: accumulate rather than overwrite.
-    - A clear topic change (occasion changes) resets deadline_date but keeps
-      size/budget_max.
+    - style_descriptors/excluded: accumulate rather than overwrite *within
+      the same topic* — a genuine topic change (occasion changes) resets
+      style_descriptors along with deadline_date, since style words
+      describing the old occasion ("traditional" for a wedding) don't
+      carry over to a genuinely new one ("casual" for a daily-wear ask).
+      Real bug this fixes: style_descriptors accumulated forever with no
+      reset at all, so the displayed "Style" chip — which shows the
+      *oldest* accumulated word — stayed stuck on whatever was said
+      first, no matter how much the shopper's intent moved on.
     - brands is untouched here — only mutated by the fast-path "different
       brand" rule, not by LLM diffs, in this phase.
     """
@@ -43,6 +49,8 @@ def merge_session_state(
     else:
         deadline_date = current.deadline_date
 
+    prior_style_descriptors = [] if topic_changed else current.style_descriptors
+
     return SessionState(
         occasion=diff.occasion if diff.occasion is not None else current.occasion,
         color_preference=(
@@ -53,7 +61,7 @@ def merge_session_state(
         budget_max=(
             diff.budget_max if diff.budget_max is not None else current.budget_max
         ),
-        style_descriptors=_dedup(current.style_descriptors + diff.style_descriptors),
+        style_descriptors=_dedup(prior_style_descriptors + diff.style_descriptors),
         size=current.size if diff.size is None else diff.size,
         deadline_date=deadline_date,
         excluded=_dedup(current.excluded + diff.excluded),

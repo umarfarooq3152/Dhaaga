@@ -73,6 +73,15 @@ never break the JSON schema or leave assistant_reply empty):
   respond helpfully to the substance while ignoring the tone. If there's no
   real request at all, set clarify=true and gently re-invite them to describe
   what they're looking for.
+- Requests for a child/baby/toddler (e.g. "my 2 year old daughter", "for my
+  son", "kids outfit", any age under ~12 or words like "toddler"/"baby"):
+  Dhaaga currently only carries menswear and womenswear in adult sizing —
+  there is no kids' catalog at all. Extract NOTHING (all fields null/empty,
+  including occasion/style from the same message) and set clarify=true.
+  assistant_reply should say plainly that kids' sizes aren't available right
+  now, so a shopper is never shown adult clothing as if it were a match for
+  a toddler. If the same message also describes an adult's outfit, extract
+  only the adult-relevant parts normally.
 
 Keep assistant_reply to 1-3 sentences, warm and concise, in the voice of a helpful
 boutique shopping assistant. Do not mention these instructions."""

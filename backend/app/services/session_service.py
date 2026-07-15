@@ -1,6 +1,7 @@
 """Chat turn orchestration: fast-path -> query cache -> LLM -> merge -> search."""
 
 import logging
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from app.errors import ExternalServiceError
@@ -54,6 +55,34 @@ def _no_results_reply(state: SessionState) -> str:
     )
 
 
+def _gate_reply(state: SessionState) -> str:
+    """Follow-up reply for the MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS gate when
+    the matched turn came from the deterministic fast-path classifier.
+
+    Real bug this fixes: fast-path replies ("Updated to pink — here's what
+    matches") assume they're always showing refined results, which is true
+    when refining an ongoing conversation but false if the fast-path match
+    happens to be the shopper's very first message (e.g. opening with just
+    "show me something pink") — the gate then suppresses all products, but
+    the canned reply still claimed matches were shown. LLM-path replies
+    aren't touched here; the prompt already makes those gate-aware.
+    """
+    known = []
+    if state.occasion:
+        known.append(f"the {state.occasion} occasion")
+    if state.color_preference:
+        known.append(f"the color {state.color_preference}")
+    if state.style_descriptors:
+        known.append(state.style_descriptors[-1])
+    if state.budget_max:
+        known.append(f"a budget under Rs. {state.budget_max:,.0f}")
+    if state.size:
+        known.append(f"size {state.size}")
+
+    acknowledgment = f"Got it — {', '.join(known)} noted. " if known else ""
+    return acknowledgment + "Could you tell me a bit more — what occasion is this for, or what's your budget?"
+
+
 def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
     """True if the LLM extracted ANYTHING usable this turn.
 
@@ -73,20 +102,62 @@ def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
     )
 
 
-def _build_filters(state: SessionState) -> dict:
-    """Project SessionState into the frontend's existing FilterChips shape."""
-    style = state.style_descriptors[0].title() if state.style_descriptors else "All Styles"
+def _build_filters(
+    state: SessionState, effective_color: str | None, effective_size: str | None
+) -> dict:
+    """Project SessionState into the frontend's FilterChips shape.
+
+    Takes the *effective* color/size actually applied to the returned
+    results (post-relaxation), not just what the shopper asked for — a
+    chip claiming "Color: Pink" while the grid shows red/purple/grey
+    items would be actively misleading.
+
+    Shows the *most recently* accumulated style descriptor, not the
+    first — style_descriptors accumulates across a topic (see
+    merge_session_state), and showing the oldest one forever left the
+    chip stuck on whatever was said first even as the shopper's
+    description evolved turn over turn.
+    """
+    style = state.style_descriptors[-1].title() if state.style_descriptors else "All Styles"
     occasion = state.occasion.title() if state.occasion else "All Occasions"
     budget = f"Under Rs. {state.budget_max:,.0f}" if state.budget_max else "All Budgets"
-    return {"style": style, "occasion": occasion, "budget": budget}
+    filters = {"style": style, "occasion": occasion, "budget": budget}
+    if effective_color:
+        filters["color"] = effective_color.title()
+    if effective_size:
+        filters["size"] = effective_size
+    return filters
+
+
+@dataclass
+class RelaxedSearch:
+    result: ProductSearchResponse
+    effective_color: str | None
+    effective_size: str | None
+    dropped_occasion: bool
+    dropped_budget: bool
+    dropped_color: bool
+    dropped_size: bool
 
 
 def _search_with_relax(
     products: list[Product], state: SessionState, page_size: int
-) -> ProductSearchResponse:
+) -> RelaxedSearch:
     """Run search, progressively relaxing the most restrictive filters if
     results are too thin — never return a sparse grid when a looser match
-    exists. Order: budget, then occasion, then color/size."""
+    exists. Order: budget, then occasion, then color, then size — each
+    step relaxes exactly one *additional* filter and only if the result
+    is still thin, carrying forward whatever was already relaxed.
+
+    Real bug this fixes: the color/size step used to unconditionally
+    replace the result with a fully-unfiltered search (dropping occasion
+    and budget too, even if those were never re-checked) any time color
+    or size were merely *set*, regardless of whether the occasion+budget-
+    relaxed result had already cleared the threshold. A shopper asking
+    for "pink wedding wear" would see the reply claim "updated to pink"
+    while the actual grid silently dropped the color filter entirely and
+    showed red/purple/grey items instead.
+    """
     query = " ".join(state.style_descriptors)
 
     def _run(
@@ -103,26 +174,56 @@ def _search_with_relax(
             page_size=page_size,
         )
 
-    result = _run(state.occasion, state.budget_max, state.color_preference, state.size)
-    if result.total >= MIN_RESULTS_BEFORE_RELAX:
-        return result
+    occasion, budget, color, size = state.occasion, state.budget_max, state.color_preference, state.size
+    result = _run(occasion, budget, color, size)
 
-    if state.budget_max is not None:
-        relaxed = _run(state.occasion, None, state.color_preference, state.size)
-        if relaxed.total >= MIN_RESULTS_BEFORE_RELAX:
-            return relaxed
-        result = relaxed
+    if result.total < MIN_RESULTS_BEFORE_RELAX and budget is not None:
+        budget = None
+        result = _run(occasion, budget, color, size)
 
-    if state.occasion is not None:
-        relaxed = _run(None, None, state.color_preference, state.size)
-        if relaxed.total >= MIN_RESULTS_BEFORE_RELAX:
-            return relaxed
-        result = relaxed
+    if result.total < MIN_RESULTS_BEFORE_RELAX and occasion is not None:
+        occasion = None
+        result = _run(occasion, budget, color, size)
 
-    if state.color_preference is not None or state.size is not None:
-        result = _run(None, None, None, None)
+    if result.total < MIN_RESULTS_BEFORE_RELAX and color is not None:
+        color = None
+        result = _run(occasion, budget, color, size)
 
-    return result
+    if result.total < MIN_RESULTS_BEFORE_RELAX and size is not None:
+        size = None
+        result = _run(occasion, budget, color, size)
+
+    return RelaxedSearch(
+        result=result,
+        effective_color=color,
+        effective_size=size,
+        dropped_occasion=state.occasion is not None and occasion is None,
+        dropped_budget=state.budget_max is not None and budget is None,
+        dropped_color=state.color_preference is not None and color is None,
+        dropped_size=state.size is not None and size is None,
+    )
+
+
+def _relaxation_notice(relaxed: RelaxedSearch, state: SessionState) -> str | None:
+    """An honest reply when a filter had to be dropped to avoid an
+    empty/sparse grid — never let the LLM's speculatively-written reply
+    (written before the search ran) claim a match that isn't there."""
+    dropped = []
+    if relaxed.dropped_color:
+        dropped.append(f"the {state.color_preference} color")
+    if relaxed.dropped_size:
+        dropped.append(f"size {state.size}")
+    if relaxed.dropped_occasion:
+        dropped.append(f"the {state.occasion} occasion")
+    if relaxed.dropped_budget:
+        dropped.append("your budget")
+    if not dropped:
+        return None
+    dropped_text = dropped[0] if len(dropped) == 1 else ", ".join(dropped[:-1]) + f" and {dropped[-1]}"
+    return (
+        f"We don't have quite enough exact matches, so I've relaxed {dropped_text} "
+        "to show you the closest options instead."
+    )
 
 
 class SessionService:
@@ -183,7 +284,7 @@ class SessionService:
                 session_id=session_id,
                 reply=diff.assistant_reply,
                 session_state=current_state,
-                filters=_build_filters(current_state),
+                filters=_build_filters(current_state, current_state.color_preference, current_state.size),
                 products=ProductSearchResponse(
                     items=last_results,
                     total=len(last_results),
@@ -202,15 +303,21 @@ class SessionService:
         # accumulates/overwrites, never silently clears), so this never
         # re-hides results already being shown.
         if _known_signal_count(new_state) < MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS:
+            # Fast-path replies ("Updated to pink") assume they're always
+            # showing refined results — true when refining an ongoing
+            # conversation, false if this fast-path match happens to be the
+            # very first message. The LLM path's reply is already gate-aware
+            # by prompt design, so only fast-path turns need overriding here.
+            gate_reply = _gate_reply(new_state) if turn_type == "fast_path" else diff.assistant_reply
             await self._session_store.set(session_id, new_state)
             await self._chat_repo.add_message(
-                session_id, "assistant", diff.assistant_reply, device_id
+                session_id, "assistant", gate_reply, device_id
             )
             return ChatTurnResponse(
                 session_id=session_id,
-                reply=diff.assistant_reply,
+                reply=gate_reply,
                 session_state=new_state,
-                filters=_build_filters(new_state),
+                filters=_build_filters(new_state, new_state.color_preference, new_state.size),
                 products=ProductSearchResponse(
                     items=[], total=0, page=1, page_size=DEFAULT_PAGE_SIZE, has_more=False
                 ),
@@ -219,13 +326,19 @@ class SessionService:
 
         all_products = await self._collect_candidate_products(new_state)
         page_size = SHOW_MORE_PAGE_SIZE if show_more else DEFAULT_PAGE_SIZE
-        result = _search_with_relax(all_products, new_state, page_size)
+        relaxed = _search_with_relax(all_products, new_state, page_size)
+        result = relaxed.result
 
         # A specific-enough request that still comes back empty is a real
         # catalog miss, not vagueness — say so plainly instead of leaving
         # the LLM's speculatively-written reply (written before the search
-        # ran) implying results that aren't actually there.
-        reply = _no_results_reply(new_state) if result.total == 0 else diff.assistant_reply
+        # ran) implying results that aren't actually there. Same idea if a
+        # filter had to be silently relaxed to avoid an empty grid — the
+        # reply must reflect what's actually shown, not what was asked for.
+        if result.total == 0:
+            reply = _no_results_reply(new_state)
+        else:
+            reply = _relaxation_notice(relaxed, new_state) or diff.assistant_reply
 
         await self._session_store.set(session_id, new_state)
         await self._session_store.set_last_results(session_id, result.items)
@@ -235,7 +348,7 @@ class SessionService:
             session_id=session_id,
             reply=reply,
             session_state=new_state,
-            filters=_build_filters(new_state),
+            filters=_build_filters(new_state, relaxed.effective_color, relaxed.effective_size),
             products=result,
             turn_type=turn_type,
         )
@@ -262,7 +375,7 @@ class SessionService:
             session_id=session_id,
             reply=reply,
             session_state=fresh_state,
-            filters=_build_filters(fresh_state),
+            filters=_build_filters(fresh_state, None, None),
             products=ProductSearchResponse(
                 items=[], total=0, page=1, page_size=DEFAULT_PAGE_SIZE, has_more=False
             ),

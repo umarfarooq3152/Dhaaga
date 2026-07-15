@@ -77,6 +77,32 @@ def test_topic_change_resets_deadline_but_keeps_size_and_budget():
     assert result.budget_max == 40000
 
 
+def test_topic_change_resets_style_descriptors():
+    # Real bug: style_descriptors accumulated forever with no reset, so
+    # the displayed "Style" chip (showing the oldest word) stayed stuck
+    # on the first-ever descriptor even after the shopper moved on to a
+    # genuinely different occasion.
+    current = SessionState(occasion="wedding", style_descriptors=["traditional", "embroidered"])
+    diff = IntentExtractionResult(occasion="casual", style_descriptors=["minimal"], assistant_reply="ok")
+    result = merge_session_state(current, diff)
+    assert result.occasion == "casual"
+    assert result.style_descriptors == ["minimal"]
+
+
+def test_same_occasion_repeated_still_accumulates_style_descriptors():
+    current = SessionState(occasion="wedding", style_descriptors=["traditional"])
+    diff = IntentExtractionResult(occasion="wedding", style_descriptors=["embroidered"], assistant_reply="ok")
+    result = merge_session_state(current, diff)
+    assert result.style_descriptors == ["traditional", "embroidered"]
+
+
+def test_topic_change_with_no_new_style_descriptors_clears_old_ones():
+    current = SessionState(occasion="wedding", style_descriptors=["traditional", "embroidered"])
+    diff = IntentExtractionResult(occasion="casual", assistant_reply="ok")
+    result = merge_session_state(current, diff)
+    assert result.style_descriptors == []
+
+
 def test_same_occasion_repeated_does_not_reset_deadline():
     deadline = date.today() + timedelta(days=3)
     current = SessionState(occasion="mehndi", deadline_date=deadline)
