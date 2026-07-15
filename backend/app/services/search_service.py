@@ -1,11 +1,24 @@
 """Product search service with keyword scoring and filtering."""
 
 import logging
+import re
 from typing import Any
 
 from app.schemas.product import Product, ProductSearchResponse
 
 logger = logging.getLogger(__name__)
+
+# Description-only match weight relative to a title match. Descriptions are
+# raw scraped HTML full of generic boilerplate (fabric/wash-care copy) that
+# incidentally mentions unrelated style words, so a hit there is a much
+# weaker relevance signal than the same word appearing in the product title.
+DESCRIPTION_MATCH_WEIGHT = 0.25
+
+
+def _contains_word(keyword: str, text: str) -> bool:
+    """Whole-word match — plain substring matching lets e.g. "polo" match
+    inside "apology", surfacing completely unrelated products."""
+    return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
 
 
 def _brand_slug(product: Product) -> str:
@@ -54,6 +67,14 @@ def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
     actual matches. Tiering by score first — relevant (>0) before filler
     (0) — guarantees relevance always wins; diversification only decides
     ordering *within* a tier of equally-relevant items.
+
+    Second real bug this fixes: a free-text query that matches nothing at
+    all in the current catalog (e.g. "sherwani" — a category none of the
+    24 registered brands carry) scored every product 0, so this used to
+    append the *entire* catalog as "filler" — surfacing e.g. socks and
+    hair ties for a sherwani search, dressed up to look like real matches.
+    When there isn't a single relevant match for an actual keyword query,
+    the honest result is zero results, not the whole catalog reshuffled.
     """
     relevant = [(p, s) for p, s in scored if s > 0]
     filler = [(p, s) for p, s in scored if s <= 0]
@@ -66,26 +87,43 @@ def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
         tier = [(p, s) for p, s in relevant if s == level]
         ranked.extend(_round_robin_by_brand(tier))
 
-    ranked.extend(_round_robin_by_brand(filler))
+    if relevant:
+        ranked.extend(_round_robin_by_brand(filler))
     return ranked
 
 
 def _keyword_score(product: Product, keywords: list[str]) -> float:
     """Calculate keyword match score for a product.
-    
+
+    A whole-word match in the product title scores a full point; a match
+    found only in the description scores a fraction of a point. Titles
+    reliably state the garment type ("Polo", "Camisole", "Kurta"), while
+    descriptions are noisy scraped HTML that mentions fabric/style words
+    across unrelated garment types — weighting title matches higher keeps
+    e.g. a "knitted" camisole from ranking alongside actual knitted polos.
+
     Args:
         product: Product to score
         keywords: List of search keywords
-        
+
     Returns:
-        Score between 0 and 1 (1 = perfect match)
+        Score between 0 and 1 (1 = every keyword matched in the title)
     """
     if not keywords:
         return 1.0
 
-    text = f"{product.name} {product.description}".lower()
-    matches = sum(1 for kw in keywords if kw.lower() in text)
-    return matches / len(keywords)
+    name = product.name.lower()
+    description = product.description.lower()
+
+    score = 0.0
+    for kw in keywords:
+        kw_lower = kw.lower()
+        if _contains_word(kw_lower, name):
+            score += 1.0
+        elif _contains_word(kw_lower, description):
+            score += DESCRIPTION_MATCH_WEIGHT
+
+    return score / len(keywords)
 
 
 def _apply_filters(

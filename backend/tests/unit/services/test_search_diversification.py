@@ -85,6 +85,23 @@ def test_relevant_keyword_matches_rank_before_irrelevant_filler():
     assert {p.name for p in result.items[1:]} == irrelevant_names
 
 
+def test_query_matching_nothing_returns_zero_results_not_the_whole_catalog():
+    # Real bug: searching "sherwani" (a category none of the registered
+    # brands carry) scored every product 0, so the old filler-always-
+    # appended logic surfaced the entire unrelated catalog — literally
+    # socks and hair ties — dressed up to look like real matches.
+    products = [
+        _product("brand-a", "1", "Grey Invisible Socks", 240),
+        _product("brand-b", "1", "Handcrafted Bloom Hair Tie", 200),
+        _product("brand-c", "1", "Ladies Tights", 500),
+    ]
+
+    result = SearchService.search(products, query="sherwani", page=1, page_size=10)
+
+    assert result.total == 0
+    assert result.items == []
+
+
 def test_multiple_relevant_matches_still_diversify_by_brand():
     products = [
         _product("brand-a", "1", "Wedding Lehenga A", 40000),
