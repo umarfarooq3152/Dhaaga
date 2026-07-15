@@ -131,7 +131,7 @@ test('appends more product cards as the products pane is scrolled', async () => 
       reason: 'Matches polo.',
     }));
     await page.evaluate(async (storedProducts) => {
-      await chrome.storage.session.set({
+      await chrome.storage.local.set({
         dhaagaConversation: {
           messages: [{ id: 'welcome', role: 'assistant', text: 'Welcome' }],
           currentResult: {
