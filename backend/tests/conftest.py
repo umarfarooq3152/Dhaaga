@@ -37,6 +37,7 @@ def fake_settings():
         groq_api_key="test-key",
         redis_url="redis://localhost:6379/0",
         frontend_origin="http://localhost:5173",
+        jwt_secret_key="test-jwt-secret",
         environment="test",
         debug=True,
     )

@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # CORS
     frontend_origin: str
 
+    # Auth
+    jwt_secret_key: str
+    jwt_expiry_days: int = 30
+
     # Environment
     environment: str = "development"
     debug: bool = False
@@ -44,6 +48,7 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_session_message_per_min: int = 20
     rate_limit_general_per_min: int = 60
+    rate_limit_auth_per_min: int = 10  # signup/login — throttles brute-force/credential-stuffing
 
     class Config:
         env_file = ".env"
@@ -58,6 +63,7 @@ class Settings(BaseSettings):
             "groq_api_key",
             "redis_url",
             "frontend_origin",
+            "jwt_secret_key",
         ]
         missing = [key for key in required if not getattr(self, key)]
         if missing:

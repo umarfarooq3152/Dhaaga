@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/devices", tags=["devices"])
 
 
+def _mask(device_id: UUID) -> str:
+    """Log only a short prefix — a full device_id is a bearer-style
+    credential (whoever holds it can act as that device via X-Device-Id),
+    so logging it in full needlessly exposes a replayable value."""
+    return f"{str(device_id)[:8]}…"
+
+
 @router.post("", response_model=DeviceCreateResponse)
 async def register_device(
     session: AsyncSession = Depends(get_session),
@@ -28,7 +35,7 @@ async def register_device(
         repo = DeviceRepository(session)
         device = await repo.get_or_create()
         await session.commit()
-        logger.info(f"Registered device {device.device_id}")
+        logger.info(f"Registered device {_mask(device.device_id)}")
         return DeviceCreateResponse(device_id=device.device_id, created_at=device.created_at)
     except Exception as e:
         logger.error(f"Failed to register device: {e}", exc_info=True)
@@ -57,7 +64,7 @@ async def get_device(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get device {device_id}: {e}", exc_info=True)
+        logger.error(f"Failed to get device {_mask(device_id)}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to get device")
 
 
@@ -85,7 +92,7 @@ async def update_device_size(
         await repo.update_size(device_id, payload.size)
         await session.commit()
 
-        logger.info(f"Updated device {device_id} size to {payload.size}")
+        logger.info(f"Updated device {_mask(device_id)} size to {payload.size}")
         return DeviceResponse.from_orm(device)
     except HTTPException:
         raise

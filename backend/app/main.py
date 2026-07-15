@@ -10,7 +10,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from sqlalchemy import text
 
@@ -125,6 +127,8 @@ def create_app() -> FastAPI:
 
     # Add rate limiter
     app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     # Exception handlers
     @app.exception_handler(DhaagaException)
@@ -190,7 +194,7 @@ def create_app() -> FastAPI:
         return health_status
 
     # Register routers
-    from app.routers import products, devices, brands, wishlist, collections, session
+    from app.routers import products, devices, brands, wishlist, collections, session, auth
 
     app.include_router(products.router)
     app.include_router(devices.router)
@@ -198,6 +202,7 @@ def create_app() -> FastAPI:
     app.include_router(wishlist.router)
     app.include_router(collections.router)
     app.include_router(session.router)
+    app.include_router(auth.router)
 
     return app
 
