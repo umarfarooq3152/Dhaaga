@@ -194,7 +194,7 @@ def create_app() -> FastAPI:
         return health_status
 
     # Register routers
-    from app.routers import products, devices, brands, wishlist, collections, session, auth
+    from app.routers import products, devices, brands, wishlist, collections, session, auth, voice
 
     app.include_router(products.router)
     app.include_router(devices.router)
@@ -203,6 +203,7 @@ def create_app() -> FastAPI:
     app.include_router(collections.router)
     app.include_router(session.router)
     app.include_router(auth.router)
+    app.include_router(voice.router)
 
     return app
 
