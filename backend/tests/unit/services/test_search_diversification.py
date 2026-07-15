@@ -66,11 +66,13 @@ def test_single_brand_still_returns_all_matches():
     assert len(result.items) == 5
 
 
-def test_relevant_keyword_matches_rank_before_irrelevant_filler():
-    # Real bug: round-robining across ALL brands regardless of score meant
-    # a brand with zero "lehenga" matches still contributed its top item
-    # into round 0, surfacing an unrelated product (a hand towel) ahead of
-    # or alongside genuine matches. Relevant items must always rank first.
+def test_relevant_keyword_matches_never_mixed_with_irrelevant_filler():
+    # Real bug found via a live "korean pant" search: with ~15 genuine
+    # matches in a 4197-product catalog, the old logic still appended
+    # the entire *rest* of the catalog as filler after them, reporting a
+    # total of 4197 and letting a shopper scroll straight into noise on
+    # page 2+. A free-text query must return only what it actually
+    # matched — one relevant item here, not it plus the whole catalog.
     products = [
         _product("brand-a", "1", "Elegant Wedding Lehenga", 40000),
         _product("brand-b", "1", "HOME | HAND TOWEL", 500),
@@ -80,9 +82,8 @@ def test_relevant_keyword_matches_rank_before_irrelevant_filler():
 
     result = SearchService.search(products, query="lehenga", page=1, page_size=10)
 
-    assert result.items[0].name == "Elegant Wedding Lehenga"
-    irrelevant_names = {"HOME | HAND TOWEL", "Casual Tshirt", "Grey Socks"}
-    assert {p.name for p in result.items[1:]} == irrelevant_names
+    assert result.total == 1
+    assert result.items == [products[0]]
 
 
 def test_query_matching_nothing_returns_zero_results_not_the_whole_catalog():
@@ -112,6 +113,7 @@ def test_multiple_relevant_matches_still_diversify_by_brand():
 
     result = SearchService.search(products, query="lehenga wedding", page=1, page_size=10)
 
+    assert result.total == 3
     top_two_brands = {p.id.split(":")[0] for p in result.items[:2]}
     assert top_two_brands == {"brand-a", "brand-b"}
-    assert result.items[-1].name == "Unrelated Filler"
+    assert "Unrelated Filler" not in {p.name for p in result.items}

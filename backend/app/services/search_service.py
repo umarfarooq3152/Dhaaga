@@ -63,28 +63,29 @@ def _round_robin_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
 
 
 def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
-    """Rank by relevance tier first, diversifying by brand only *within*
-    each tier — never interleaving irrelevant filler ahead of or alongside
-    genuine matches.
+    """Rank by relevance tier, diversifying by brand only *within* each
+    tier — products that scored 0 ("filler") are never included at all.
 
     Real bug this fixes: round-robining across ALL brands regardless of
     score meant a brand with zero keyword matches for e.g. "lehenga" still
     contributed its top-priced item into the very first round, surfacing
     completely unrelated products (a hand towel) ahead of or alongside
-    actual matches. Tiering by score first — relevant (>0) before filler
-    (0) — guarantees relevance always wins; diversification only decides
-    ordering *within* a tier of equally-relevant items.
+    actual matches.
 
-    Second real bug this fixes: a free-text query that matches nothing at
-    all in the current catalog (e.g. "sherwani" — a category none of the
-    24 registered brands carry) scored every product 0, so this used to
-    append the *entire* catalog as "filler" — surfacing e.g. socks and
-    hair ties for a sherwani search, dressed up to look like real matches.
-    When there isn't a single relevant match for an actual keyword query,
-    the honest result is zero results, not the whole catalog reshuffled.
+    Second real bug this fixes: when literally nothing matched (e.g.
+    "sherwani" — a category none of the registered brands carry), this
+    used to append the *entire* catalog as filler — surfacing e.g. socks
+    and hair ties for a sherwani search, dressed up to look like matches.
+
+    Third real bug this fixes, found via a real "korean pant" search: even
+    with real matches present, this still appended the entire *rest* of
+    the catalog as filler after them — a query with ~15 genuine matches
+    reported a total of 4197 (the full catalog size), and a shopper
+    scrolling past the real matches on page 2+ would hit pure noise. A
+    free-text query should only ever return what it actually matched, at
+    any count — never pad out to "the whole catalog, reshuffled."
     """
     relevant = [(p, s) for p, s in scored if s > 0]
-    filler = [(p, s) for p, s in scored if s <= 0]
 
     # Sub-tier the relevant matches by exact score so a perfect match still
     # outranks a partial one, diversifying by brand within each score level.
@@ -94,8 +95,6 @@ def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
         tier = [(p, s) for p, s in relevant if s == level]
         ranked.extend(_round_robin_by_brand(tier))
 
-    if relevant:
-        ranked.extend(_round_robin_by_brand(filler))
     return ranked
 
 

@@ -41,7 +41,9 @@ def _product(
 def test_keyword_does_not_match_inside_an_unrelated_word():
     # Real bug: searching "polo" matched "Not Sorry", an oversized t-shirt
     # whose description contains the word "apology" — "polo" is a
-    # substring of "apology" but is not the word "polo".
+    # substring of "apology" but is not the word "polo". A genuine
+    # non-match like this must not appear in results at all (score 0 is
+    # excluded entirely, not just ranked last as filler).
     products = [
         _product("brand-a", "1", "Basic Smart Fit Polo Top", 990),
         _product(
@@ -52,8 +54,8 @@ def test_keyword_does_not_match_inside_an_unrelated_word():
 
     result = SearchService.search(products, query="polo", page=1, page_size=10)
 
-    assert result.items[0].name == "Basic Smart Fit Polo Top"
-    assert result.items[-1].name == "Not Sorry"
+    assert result.total == 1
+    assert result.items == [products[0]]
 
 
 def test_description_only_match_ranks_below_title_match():
