@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, Mic, Send, ArrowLeft, Sparkles, SlidersHorizontal, Eye, RefreshCw, Compass, Heart, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
 import { Product } from '../types';
 import { useSessionChat } from '../hooks/useSessionChat';
+import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 
 interface ChatSearchScreenProps {
   userName: string;
@@ -446,7 +447,7 @@ export default function ChatSearchScreen({
           <button onClick={onBack} className="p-1.5 hover:bg-gray-100 rounded-full transition-colors cursor-pointer">
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <span className="font-serif text-xl tracking-[0.15em] text-[#003224] font-bold">Dhaaga</span>
+          <img src={dhaagaLogo} alt="Dhaaga" className="h-6 w-auto" />
         </div>
 
         {/* Optional Reset Button */}

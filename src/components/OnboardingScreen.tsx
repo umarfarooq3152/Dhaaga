@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Check } from 'lucide-react';
+import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 
 interface OnboardingScreenProps {
   onComplete: (userName: string, preferredSize: string, department: 'men' | 'women') => void;
@@ -59,7 +60,7 @@ export default function OnboardingScreen({ onComplete, onSkip }: OnboardingScree
       {/* Top Header */}
       <header className="flex justify-between items-center w-full max-w-5xl mx-auto z-10">
         <div className="flex flex-col items-start">
-          <span className="font-serif text-2xl sm:text-3xl font-black tracking-[0.2em] text-[#003224] uppercase">Dhaaga</span>
+          <img src={dhaagaLogo} alt="Dhaaga" className="h-8 sm:h-10 w-auto" />
         </div>
         <button 
           onClick={onSkip}

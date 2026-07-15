@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, Mic, Heart, ShoppingBag, ArrowRight, User, Settings, LogOut, ShieldCheck } from 'lucide-react';
 // @ts-ignore
 import searchBarBg from '../assets/images/search_bar_bg_1783947191734.jpg';
+import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 import { fetchCollections } from '../api/collections';
 import { fetchBrands } from '../api/brands';
 import { ApiBrand, ApiCollection } from '../types';
@@ -76,13 +77,13 @@ export default function DiscoveryScreen({
           <div className="w-24 sm:w-32" />
 
           {/* Center Brand Name Logo */}
-          <div className="text-center flex-1">
-            <span 
+          <div className="text-center flex-1 flex justify-center">
+            <img
+              src={dhaagaLogo}
+              alt="Dhaaga"
               onClick={() => window.location.reload()}
-              className="font-serif text-2.5xl sm:text-3.5xl font-black tracking-[0.3em] text-[#003224] uppercase cursor-pointer block leading-none"
-            >
-              Dhaaga
-            </span>
+              className="h-9 sm:h-11 w-auto cursor-pointer"
+            />
           </div>
 
           {/* Minimalist Utility Icons */}
