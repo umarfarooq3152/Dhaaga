@@ -1,8 +1,7 @@
 # Dhaaga Backend
 
 FastAPI backend for conversational search over Pakistani clothing brands.
-
-**Status:** Phase 0 Groundwork Complete
+See the [root README](../README.md) for the full project overview.
 
 ## Quick Start
 
@@ -52,14 +51,11 @@ pytest --cov-report=html
 
 ## Documentation
 
-- [BACKEND_OVERVIEW.md](../docs/BACKEND_OVERVIEW.md) — Architecture & file structure
-- [BACKEND_DEV_GUIDE.md](../docs/BACKEND_DEV_GUIDE.md) — Development setup & workflow
-- [NEON_SETUP.md](../docs/NEON_SETUP.md) — Neon Postgres configuration
-- [PHASE0_COMPLETE.md](../docs/PHASE0_COMPLETE.md) — What's ready, what's next
-
-## Implementation Plan
-
-See the root directory's implementation plan for the full 6-phase breakdown.
+- [docs/PRD.md](../docs/PRD.md), [docs/TDD.md](../docs/TDD.md),
+  [docs/FEATURE_SPEC.md](../docs/FEATURE_SPEC.md) — original product/technical
+  spec (note: some early architecture decisions in these were superseded
+  during build — see the root README for what's actually implemented)
+- [docs/NEON_SETUP.md](../docs/NEON_SETUP.md) — Neon Postgres configuration
 
 ## Project Structure
 
@@ -79,10 +75,3 @@ app/
 └── routers/             # API endpoints
 ```
 
-## Next Phase (Phase 1)
-
-- Implement 7-table Alembic migration
-- Seed 16 brands + collections
-- Build repository layer for CRUD operations
-
-See [PHASE0_COMPLETE.md](../docs/PHASE0_COMPLETE.md) for detailed next steps.
