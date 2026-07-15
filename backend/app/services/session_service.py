@@ -23,6 +23,36 @@ MIN_RESULTS_BEFORE_RELAX = 10
 SHOW_MORE_PAGE_SIZE = 40
 DEFAULT_PAGE_SIZE = 20
 
+# How many of {occasion, budget, color/style/garment, size} must be known
+# before showing products at all, rather than asking another follow-up.
+# Once this many signals are known they persist across turns (merge_session_state
+# accumulates/overwrites, never silently clears), so this only gates the
+# *first* couple of turns on a vague query — it never re-hides results
+# already being shown.
+MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS = 2
+
+
+def _known_signal_count(state: SessionState) -> int:
+    return sum([
+        bool(state.occasion),
+        state.budget_max is not None,
+        bool(state.color_preference or state.style_descriptors),
+        bool(state.size),
+    ])
+
+
+def _no_results_reply(state: SessionState) -> str:
+    """A good-mannered reply for a genuine miss — the shopper asked for
+    something specific enough that nothing in the current catalog matches
+    it, rather than the query just being too vague to narrow (that case
+    never reaches a search at all, see MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS)."""
+    described = state.style_descriptors[-1] if state.style_descriptors else None
+    what = described or (state.occasion.title() if state.occasion else "that")
+    return (
+        f"I'm sorry, we don't currently have anything matching {what} in our "
+        "catalog. Would you like to try a different style, color, or budget?"
+    )
+
 
 def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
     """True if the LLM extracted ANYTHING usable this turn.
@@ -165,19 +195,45 @@ class SessionService:
             )
 
         new_state = merge_session_state(current_state, diff)
+
+        # Don't show a grab-bag on a vague query — ask another follow-up
+        # instead until enough is known to narrow well. Once the threshold
+        # is crossed, known signals persist across turns (merge_session_state
+        # accumulates/overwrites, never silently clears), so this never
+        # re-hides results already being shown.
+        if _known_signal_count(new_state) < MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS:
+            await self._session_store.set(session_id, new_state)
+            await self._chat_repo.add_message(
+                session_id, "assistant", diff.assistant_reply, device_id
+            )
+            return ChatTurnResponse(
+                session_id=session_id,
+                reply=diff.assistant_reply,
+                session_state=new_state,
+                filters=_build_filters(new_state),
+                products=ProductSearchResponse(
+                    items=[], total=0, page=1, page_size=DEFAULT_PAGE_SIZE, has_more=False
+                ),
+                turn_type=turn_type,
+            )
+
         all_products = await self._collect_candidate_products(new_state)
         page_size = SHOW_MORE_PAGE_SIZE if show_more else DEFAULT_PAGE_SIZE
         result = _search_with_relax(all_products, new_state, page_size)
 
+        # A specific-enough request that still comes back empty is a real
+        # catalog miss, not vagueness — say so plainly instead of leaving
+        # the LLM's speculatively-written reply (written before the search
+        # ran) implying results that aren't actually there.
+        reply = _no_results_reply(new_state) if result.total == 0 else diff.assistant_reply
+
         await self._session_store.set(session_id, new_state)
         await self._session_store.set_last_results(session_id, result.items)
-        await self._chat_repo.add_message(
-            session_id, "assistant", diff.assistant_reply, device_id
-        )
+        await self._chat_repo.add_message(session_id, "assistant", reply, device_id)
 
         return ChatTurnResponse(
             session_id=session_id,
-            reply=diff.assistant_reply,
+            reply=reply,
             session_state=new_state,
             filters=_build_filters(new_state),
             products=result,
