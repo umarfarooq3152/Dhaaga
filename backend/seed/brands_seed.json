@@ -142,5 +142,11 @@
     "slug": "the-hanger-pakistan",
     "domain": "thehangerpakistan.com",
     "department": "men"
+  },
+  {
+    "name": "Rad Store",
+    "slug": "rad-store",
+    "domain": "radstore.pk",
+    "department": "men"
   }
 ]
