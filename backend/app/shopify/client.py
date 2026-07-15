@@ -8,13 +8,22 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# aiohttp's default User-Agent ("Python/3.x aiohttp/3.x") is blocked with a 429
+# by Shopify/Cloudflare's bot protection on every storefront tested — curl and
+# a real browser UA succeed against the identical URL. A browser-like UA is
+# required for /products.json to return data at all.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
+
 
 class ShopifyClient:
     """Async HTTP client for Shopify's public products JSON endpoint."""
 
     def __init__(self, timeout: int = 30):
         """Initialize Shopify client.
-        
+
         Args:
             timeout: Request timeout in seconds
         """
@@ -42,7 +51,8 @@ class ShopifyClient:
             params["cursor"] = cursor
 
         try:
-            async with aiohttp.ClientSession() as session:
+            headers = {"User-Agent": BROWSER_USER_AGENT}
+            async with aiohttp.ClientSession(headers=headers) as session:
                 async with session.get(url, params=params, timeout=self.timeout) as resp:
                     if resp.status == 200:
                         return await resp.json()
