@@ -12,7 +12,15 @@ from app.schemas.product import Product
 from app.services.search_service import SearchService
 
 
-def _product(brand: str, external_id: str, name: str, price: float, description: str = "") -> Product:
+def _product(
+    brand: str,
+    external_id: str,
+    name: str,
+    price: float,
+    description: str = "",
+    category: str | None = None,
+    shopify_tags: list[str] | None = None,
+) -> Product:
     return Product(
         id=f"{brand}:{external_id}",
         name=name,
@@ -21,7 +29,9 @@ def _product(brand: str, external_id: str, name: str, price: float, description:
         colors=[],
         sizes=[],
         occasion="casual",
+        category=category,
         tags=[],
+        shopify_tags=shopify_tags or [],
         image="https://example.com/1.jpg",
         secondaryImage=None,
         product_url="https://example.com/products/1",
@@ -74,3 +84,30 @@ def test_title_match_beats_description_only_match_for_single_keyword():
     result = SearchService.search(products, query="polo", page=1, page_size=10)
 
     assert result.items[0].name == "Polo Shirt"
+
+
+def test_category_match_scores_as_high_as_title_match():
+    # Shopify's product_type is a precise merchant-set garment label —
+    # a generically-named product in the right category should rank
+    # alongside a product whose title literally says the keyword.
+    products = [
+        _product("brand-a", "1", "AJPR-27", 1590, category="Kurta"),
+        _product("brand-b", "1", "Random Top", 990, description="Not a kurta at all."),
+    ]
+
+    result = SearchService.search(products, query="kurta", page=1, page_size=10)
+
+    assert result.items[0].name == "AJPR-27"
+    assert result.items[-1].name == "Random Top"
+
+
+def test_shopify_tags_match_ranks_above_description_only_match():
+    products = [
+        _product("brand-a", "1", "Basic Pique Top", 1349, shopify_tags=["Men", "men-polo", "POLOS"]),
+        _product("brand-b", "1", "Random Top", 990, description="Comes with a polo-style collar option."),
+    ]
+
+    result = SearchService.search(products, query="polo", page=1, page_size=10)
+
+    assert result.items[0].name == "Basic Pique Top"
+    assert result.items[-1].name == "Random Top"

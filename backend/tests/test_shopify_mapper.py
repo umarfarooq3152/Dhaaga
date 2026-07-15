@@ -81,6 +81,17 @@ class TestSizeExtraction:
         sizes = extract_sizes({})
         assert sizes == ["One Size"]
 
+    def test_extract_from_non_exact_size_option_name(self):
+        # Real observed case: Gul Ahmed names its size option "Men Sizes",
+        # which an exact match on "size"/"sizes" used to miss entirely,
+        # silently falling back to "One Size" for every product.
+        product = {
+            "options": [{"id": 1, "name": "Men Sizes", "values": ["S", "M", "L"]}],
+            "variants": [],
+        }
+        sizes = extract_sizes(product)
+        assert sizes == ["L", "M", "S"]
+
 
 class TestMapperBasic:
     """Test basic Shopify to Product mapping."""
@@ -166,6 +177,122 @@ class TestMapperBasic:
             product = {**SAMPLE_SHOPIFY_PRODUCT, "title": title, "product_type": ""}
             result = map_shopify_to_product(product, "brand", "domain.pk")
             assert result is None, f"Expected {title!r} to be excluded as non-apparel"
+
+    def test_skips_non_apparel_plural_category(self):
+        # Regression: switching to whole-word matching (to stop "polo"
+        # matching inside "apology") initially broke plural forms — a
+        # real observed case, Outfitters' "FRAGRANCES" category, stopped
+        # being excluded because the keyword list only had "fragrance".
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "Verde", "product_type": "FRAGRANCES"}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_footwear(self):
+        # Real observed case: Outfitters' "Closed Shoes" category showing
+        # up in what should be a clothing-only catalog.
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "Canvas Slip-On", "product_type": "Closed Shoes"}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_kids_apparel_by_title(self):
+        # Real observed case: Gul Ahmed's "Toddler Boy Multi Sweatshirt"
+        # and "Junior Boy Clay Printed Sweatshirt" surfaced in a plain
+        # adult "sweatshirt" search — this app has no kids sizing/flow.
+        for title in ["Toddler Boy Multi Sweatshirt", "Junior Boy Clay Printed Sweatshirt"]:
+            product = {**SAMPLE_SHOPIFY_PRODUCT, "title": title, "product_type": ""}
+            result = map_shopify_to_product(product, "brand", "domain.pk")
+            assert result is None, f"Expected {title!r} to be excluded as kids apparel"
+
+    def test_skips_kids_apparel_by_category_prefix(self):
+        # Real observed case: Beechtree's kids line uses its own category
+        # prefix ("BTK-East" / "BTK-West") with no kids keyword in the
+        # title at all.
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "2 Piece Floral Set", "product_type": "BTK-East"}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_kids_apparel_by_shopify_tags(self):
+        # Real observed case: Beechtree's "2 PIECE EMBROIDERED SUIT" has no
+        # kids keyword in title or product_type at all — only its Shopify
+        # tags ("Kids", "Little Girls", "child") reveal it's a kids item.
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "2 Piece Embroidered Suit",
+            "product_type": "",
+            "tags": ["1-2Y", "child", "Kid-FUS", "Kids", "Little Girls", "NA-West"],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_non_apparel_by_shopify_tags(self):
+        # Real observed case: Alkaram's "VELVET DUSK" has a generic title
+        # with no obvious perfume keyword — only its tags ("Fragrance",
+        # "MISTS") reveal it's not a garment.
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Velvet Dusk",
+            "product_type": "",
+            "tags": ["Female", "Fragrance", "MISTS", "uploaded-11-march-26"],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_keeps_product_with_unrelated_shopify_tags(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Embroidered Lawn Kurta",
+            "product_type": "Kurta",
+            "tags": ["Women", "Summer-26", "New In", "Embroidered"],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is not None
+        assert result.shopify_tags == ["Women", "Summer-26", "New In", "Embroidered"]
+
+    def test_skips_kids_apparel_by_vendor(self):
+        # Real observed case: Zellbury and Outfitters use `vendor` as a
+        # per-product department/age label ("ZELLBURY GIRLS", "Boys
+        # Junior") independent of the brand-level department, with no
+        # kids signal anywhere in the title, category, or tags.
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Printed Shirt",
+            "product_type": "Shirts",
+            "vendor": "ZELLBURY GIRLS",
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_skips_fully_out_of_stock_product(self):
+        # Real observed case: a large fraction of the cached catalog was
+        # completely sold out (every variant unavailable) but still
+        # shown as if purchasable, since availability was never checked.
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "variants": [
+                {"id": 1, "title": "Red / S", "price": "5000", "available": False},
+                {"id": 2, "title": "Blue / M", "price": "5000", "available": False},
+            ],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
+    def test_keeps_product_with_at_least_one_available_variant(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "variants": [
+                {"id": 1, "title": "Red / S", "price": "5000", "available": False},
+                {"id": 2, "title": "Blue / M", "price": "5000", "available": True},
+            ],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is not None
+
+    def test_does_not_flag_boyfriend_fit_as_kids(self):
+        # Regression: whole-word matching must not treat "boy" inside
+        # "boyfriend" (a legitimate unisex jeans-fit term) as a kids signal.
+        product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "Boyfriend Fit Jeans", "product_type": "Bottoms"}
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is not None
 
 
 class TestKeywordMatching:

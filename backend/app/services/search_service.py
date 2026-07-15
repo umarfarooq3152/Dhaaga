@@ -8,17 +8,24 @@ from app.schemas.product import Product, ProductSearchResponse
 
 logger = logging.getLogger(__name__)
 
-# Description-only match weight relative to a title match. Descriptions are
-# raw scraped HTML full of generic boilerplate (fabric/wash-care copy) that
-# incidentally mentions unrelated style words, so a hit there is a much
-# weaker relevance signal than the same word appearing in the product title.
+# Match weights relative to a title match (1.0). category is Shopify's own
+# product_type — a precise merchant-set garment label, as trustworthy as the
+# title. shopify_tags are merchant-set too but noisier (mixed in with SKU
+# codes, sale campaign tags, size charts), so weighted a bit below title/
+# category. description is raw scraped HTML full of generic boilerplate
+# (fabric/wash-care copy) that incidentally mentions unrelated style words,
+# so a hit there is the weakest signal.
+CATEGORY_MATCH_WEIGHT = 1.0
+SHOPIFY_TAGS_MATCH_WEIGHT = 0.75
 DESCRIPTION_MATCH_WEIGHT = 0.25
 
 
 def _contains_word(keyword: str, text: str) -> bool:
-    """Whole-word match — plain substring matching lets e.g. "polo" match
-    inside "apology", surfacing completely unrelated products."""
-    return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+    """Whole-word match, tolerant of a simple trailing plural "s" — plain
+    substring matching lets e.g. "polo" match inside "apology", surfacing
+    completely unrelated products; strict `\\bword\\b` then misses a
+    shopper searching "polos" against a title that says "Polo"."""
+    return re.search(rf"\b{re.escape(keyword)}s?\b", text) is not None
 
 
 def _brand_slug(product: Product) -> str:
@@ -95,31 +102,37 @@ def _diversify_by_brand(scored: list[tuple[Product, float]]) -> list[Product]:
 def _keyword_score(product: Product, keywords: list[str]) -> float:
     """Calculate keyword match score for a product.
 
-    A whole-word match in the product title scores a full point; a match
-    found only in the description scores a fraction of a point. Titles
-    reliably state the garment type ("Polo", "Camisole", "Kurta"), while
-    descriptions are noisy scraped HTML that mentions fabric/style words
-    across unrelated garment types — weighting title matches higher keeps
-    e.g. a "knitted" camisole from ranking alongside actual knitted polos.
+    Each keyword is checked against title, category (Shopify product_type),
+    shopify_tags, and description, in that order of trust — a keyword
+    scores whichever field's weight is highest it matched in, not the sum
+    across fields. Title/category are precise merchant-set labels; tags
+    are merchant-set but noisier; descriptions are raw scraped HTML full
+    of generic boilerplate that mentions unrelated style words across
+    unrelated garment types — weighting them lowest keeps e.g. a
+    "knitted" camisole from ranking alongside actual knitted polos.
 
     Args:
         product: Product to score
         keywords: List of search keywords
 
     Returns:
-        Score between 0 and 1 (1 = every keyword matched in the title)
+        Score between 0 and 1 (1 = every keyword matched in title/category)
     """
     if not keywords:
         return 1.0
 
     name = product.name.lower()
+    category = (product.category or "").lower()
+    tags_text = " ".join(product.shopify_tags).lower()
     description = product.description.lower()
 
     score = 0.0
     for kw in keywords:
         kw_lower = kw.lower()
-        if _contains_word(kw_lower, name):
-            score += 1.0
+        if _contains_word(kw_lower, name) or _contains_word(kw_lower, category):
+            score += CATEGORY_MATCH_WEIGHT
+        elif _contains_word(kw_lower, tags_text):
+            score += SHOPIFY_TAGS_MATCH_WEIGHT
         elif _contains_word(kw_lower, description):
             score += DESCRIPTION_MATCH_WEIGHT
 

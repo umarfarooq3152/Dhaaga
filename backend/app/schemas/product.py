@@ -16,6 +16,15 @@ class Product(BaseModel):
     occasion: Optional[str] = None
     category: Optional[str] = Field(None, description="Garment type, e.g. Shopify product_type")
     tags: list[str] = Field(default_factory=list)
+    shopify_tags: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Raw merchant-set Shopify tags — often names the garment type or "
+            "audience (e.g. 'Kurta', 'Kids', 'Girls') more reliably than the "
+            "title/description alone; used for search scoring and ingestion "
+            "filtering, not primarily for display."
+        ),
+    )
     image: str
     secondaryImage: Optional[str] = None
     product_url: str

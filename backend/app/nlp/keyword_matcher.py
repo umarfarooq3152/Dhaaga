@@ -54,8 +54,13 @@ STYLE_KEYWORDS = {
 
 
 def extract_occasion(product: Product) -> str:
-    """Determine primary occasion from product name/description."""
-    text = f"{product.name} {product.description}".lower()
+    """Determine primary occasion from product name/description/Shopify tags.
+
+    Merchant-set Shopify tags often name the occasion/collection directly
+    (e.g. "Eid Edit 26") more reliably than scanning the scraped
+    description's boilerplate copy.
+    """
+    text = f"{product.name} {product.description} {' '.join(product.shopify_tags)}".lower()
 
     # Score each occasion
     scores = {}
@@ -71,8 +76,9 @@ def extract_occasion(product: Product) -> str:
 
 
 def extract_tags(product: Product) -> list[str]:
-    """Extract material, style, and other relevant tags from product."""
-    text = f"{product.name} {product.description}".lower()
+    """Extract material, style, and other relevant tags from product,
+    including the merchant's own Shopify tags as a signal."""
+    text = f"{product.name} {product.description} {' '.join(product.shopify_tags)}".lower()
     tags = []
 
     # Check material keywords
