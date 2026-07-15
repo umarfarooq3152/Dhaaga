@@ -8,6 +8,7 @@ import { fetchCollections } from '../api/collections';
 import { fetchBrands } from '../api/brands';
 import { ApiBrand, ApiCollection } from '../types';
 import { AuthUser } from '../api/auth';
+import { useVoiceRecording } from '../hooks/useVoiceRecording';
 
 interface DiscoveryScreenProps {
   userName: string;
@@ -62,9 +63,19 @@ export default function DiscoveryScreen({
     onEnterChat(searchInput || 'I need an elegant outfit for a special occasion');
   };
 
-  // Voice note search (Feature 6) is deferred post-MVP — no real
-  // transcription wired up yet.
-  const handleMicClick = () => {};
+  // Voice search: records via the mic, transcribes through the backend
+  // (Whisper via Groq), then jumps straight into chat with the spoken
+  // query — "speak and get results," matching the search bar's own flow.
+  const { isRecording, isTranscribing, error: voiceError, startRecording, stopRecording } =
+    useVoiceRecording((text) => onEnterChat(text));
+
+  const handleMicClick = () => {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  };
 
   const handleChipClick = (chip: string) => {
     onEnterChat(chip);
@@ -237,12 +248,23 @@ export default function DiscoveryScreen({
                 <button
                   type="button"
                   onClick={handleMicClick}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-[#003224] hover:bg-[#004B37] text-white rounded-full p-2.5 transition-all shadow-sm cursor-pointer flex items-center justify-center hover:scale-105 active:scale-95"
+                  disabled={isTranscribing}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 text-white rounded-full p-2.5 transition-all shadow-sm cursor-pointer flex items-center justify-center hover:scale-105 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed ${isRecording ? 'bg-red-500 hover:bg-red-600' : 'bg-[#003224] hover:bg-[#004B37]'}`}
                   title="Search with Voice"
                 >
-                  <Mic className="w-4 h-4" />
+                  <Mic className={`w-4 h-4 ${isRecording ? 'animate-pulse' : ''}`} />
                 </button>
               </form>
+              {isRecording && (
+                <p className="text-xs text-[#003224] font-sans font-semibold flex items-center justify-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                  Listening... tap the mic again to stop
+                </p>
+              )}
+              {isTranscribing && (
+                <p className="text-xs text-gray-500 font-sans">Transcribing your voice search...</p>
+              )}
+              {voiceError && <p className="text-xs text-red-600 font-sans">{voiceError}</p>}
 
               {/* Quick-search suggestion chips */}
               {activeChips.length > 0 && (

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Search, Mic, Send, ArrowLeft, Sparkles, SlidersHorizontal, Eye, RefreshCw, Compass, Heart, User, LogOut, ShieldCheck, LogIn } from 'lucide-react';
 import { Product } from '../types';
 import { useSessionChat } from '../hooks/useSessionChat';
+import { useVoiceRecording } from '../hooks/useVoiceRecording';
 import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 import { AuthUser } from '../api/auth';
 
@@ -94,7 +95,6 @@ export default function ChatSearchScreen({
 
   // Mobile sheet states
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);
-  const [isRecording, setIsRecording] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -116,10 +116,18 @@ export default function ChatSearchScreen({
     setInputText('');
   };
 
-  // Voice note search (Feature 6) is deferred post-MVP — mic just toggles a
-  // visual recording state for now, no real transcription yet.
+  // Voice search: records via the mic, transcribes through the backend
+  // (Whisper via Groq), then sends the transcribed text as a chat message —
+  // "speak and get results," matching how the mic button reads in the UI.
+  const { isRecording, isTranscribing, error: voiceError, startRecording, stopRecording } =
+    useVoiceRecording((text) => sendMessage(text));
+
   const handleMicClick = () => {
-    setIsRecording((prev) => !prev);
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
   };
 
   // Individual chip removal isn't independently supported server-side yet
@@ -160,6 +168,18 @@ export default function ChatSearchScreen({
             <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
               <span>Budget: {filters.budget}</span>
               <button onClick={() => removeFilter('budget')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
+            </span>
+          )}
+          {filters.color && (
+            <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <span>Color: {filters.color}</span>
+              <button onClick={() => removeFilter('color')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
+            </span>
+          )}
+          {filters.size && (
+            <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <span>Size: {filters.size}</span>
+              <button onClick={() => removeFilter('size')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
             </span>
           )}
           {storyStep > 0 && (
@@ -387,6 +407,9 @@ export default function ChatSearchScreen({
 
                 {/* Fixed Voice Waveform / Input Bar */}
                 <div className="p-3 border-t border-gray-100 bg-white">
+                  {voiceError && (
+                    <p className="text-[10px] text-red-600 font-sans mb-1.5 px-1">{voiceError}</p>
+                  )}
                   {isRecording ? (
                     <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
@@ -410,6 +433,11 @@ export default function ChatSearchScreen({
                       >
                         Stop
                       </button>
+                    </div>
+                  ) : isTranscribing ? (
+                    <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center gap-2 mb-2">
+                      <RefreshCw className="w-3.5 h-3.5 text-[#003224] animate-spin" />
+                      <span className="text-xs text-gray-600 font-sans">Transcribing your voice search...</span>
                     </div>
                   ) : (
                     <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
@@ -621,6 +649,9 @@ export default function ChatSearchScreen({
 
           {/* Bottom Fixed Input bar */}
           <div className="p-4 border-t border-gray-100 bg-white shadow-xs">
+            {voiceError && (
+              <p className="text-xs text-red-600 font-sans mb-1.5 px-1">{voiceError}</p>
+            )}
             {isRecording && (
               <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -646,6 +677,12 @@ export default function ChatSearchScreen({
                 </button>
               </div>
             )}
+            {isTranscribing && (
+              <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center gap-2 mb-2">
+                <RefreshCw className="w-4 h-4 text-[#003224] animate-spin" />
+                <span className="text-xs text-gray-600 font-sans font-semibold">Transcribing your voice search...</span>
+              </div>
+            )}
 
             <form onSubmit={handleSendMessage} className="flex gap-2 items-center">
               <input
@@ -658,8 +695,9 @@ export default function ChatSearchScreen({
               <button
                 type="button"
                 onClick={handleMicClick}
+                disabled={isTranscribing}
                 title="Search with Voice"
-                className={`p-2.5 rounded-full transition-colors cursor-pointer ${isRecording ? 'bg-red-500 text-white' : 'bg-gray-100 text-[#003224] hover:bg-gray-200'}`}
+                className={`p-2.5 rounded-full transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${isRecording ? 'bg-red-500 text-white' : 'bg-gray-100 text-[#003224] hover:bg-gray-200'}`}
               >
                 <Mic className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
               </button>

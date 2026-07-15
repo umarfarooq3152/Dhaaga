@@ -55,7 +55,7 @@ export interface ChatTurnResponse {
   session_id: string;
   reply: string;
   session_state: SessionState;
-  filters: { style: string; occasion: string; budget: string };
+  filters: { style: string; occasion: string; budget: string; color?: string; size?: string };
   products: ApiProductSearchResponse;
   turn_type: 'fast_path' | 'llm_extraction';
 }
@@ -99,6 +99,8 @@ export interface FilterChips {
   style: string;
   occasion: string;
   budget: string;
+  color?: string;
+  size?: string;
 }
 
 export type Platform = 'desktop' | 'mobile';
