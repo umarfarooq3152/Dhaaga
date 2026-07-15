@@ -17,28 +17,34 @@ class EventProfile:
 
 EVENTS: tuple[EventProfile, ...] = (
     EventProfile("mehndi", ("mehndi", "mayun", "ubtan", "dholki", "sangeet"),
-                 ("lehenga", "gharara", "sharara", "angrakha", "pishwas", "frock", "kurta", "waistcoat", "shalwar kameez", "3 piece", "3-piece"),
+                 ("lehenga", "choli", "gharara", "sharara", "angrakha", "palazzo", "pishwas", "frock", "short kurta", "kurta", "waistcoat", "shalwar kameez", "3 piece", "3-piece"),
                  ("yellow", "mustard", "green", "orange", "pink", "lime", "multicolor", "multi"),
                  ("embroidered", "embroidery", "mirror work", "gotta", "gota", "sequins", "embellished", "festive", "traditional")),
     EventProfile("nikah", ("nikah", "nikkah", "nikkah ceremony"),
                  ("pishwas", "lehenga", "gharara", "sharara", "angrakha", "kurta", "waistcoat", "shalwar kameez", "3 piece", "3-piece"),
                  ("white", "ivory", "cream", "beige", "pastel", "blush", "silver"),
                  ("embroidered", "embroidery", "embellished", "formal", "festive", "traditional")),
-    EventProfile("baraat", ("baraat", "barat", "shaadi", "shadi", "wedding", "bridal"),
-                 ("lehenga", "gharara", "sharara", "pishwas", "sherwani", "prince coat", "waistcoat", "3 piece", "3-piece"),
+    EventProfile("baraat", ("baraat", "barat", "shaadi", "shadi", "wedding", "bridal", "rukhsati", "winter wedding"),
+                 ("lehenga", "choli", "gharara", "sharara", "pishwas", "sherwani", "prince coat", "waistcoat", "3 piece", "3-piece"),
                  ("red", "maroon", "burgundy", "gold", "crimson"),
                  ("bridal", "embroidered", "embellished", "zari", "formal", "festive", "traditional")),
     EventProfile("walima", ("walima", "valima", "reception"),
                  ("gown", "maxi", "pishwas", "lehenga", "sharara", "prince coat", "suit", "3 piece", "3-piece"),
-                 ("pastel", "silver", "grey", "blue", "mint", "lavender", "peach", "ivory"),
+                 ("pastel", "champagne", "blush", "powder blue", "silver", "grey", "blue", "mint", "lavender", "peach", "ivory"),
                  ("embroidered", "embellished", "formal", "luxury", "festive")),
     EventProfile("engagement", ("engagement", "mangni", "baat pakki", "ring ceremony"),
-                 ("maxi", "gown", "pishwas", "sharara", "kurta", "waistcoat", "suit", "3 piece", "3-piece"),
-                 ("pastel", "pink", "blue", "mint", "lavender", "peach"),
+                 ("lehenga", "choli", "gharara", "maxi", "gown", "pishwas", "sharara", "kurta", "waistcoat", "shalwar kameez", "suit", "3 piece", "3-piece"),
+                 ("pastel", "gold", "light pink", "pink", "blue", "mint", "lavender", "peach", "red"),
                  ("embroidered", "embellished", "formal", "festive")),
     EventProfile("eid", ("eid", "eid ul fitr", "eid-ul-fitr", "eid ul adha", "eid-ul-adha", "bakra eid", "choti eid"),
                  ("kurta", "shalwar kameez", "gharara", "sharara", "pishwas", "waistcoat", "sherwani", "3 piece", "3-piece", "2 piece", "2-piece"),
                  (), ("embroidered", "embellished", "festive", "traditional", "printed")),
+    EventProfile("eid milan", ("eid milan", "eid get together", "eid party"),
+                 ("kurta", "shalwar kameez", "frock", "gharara", "sharara", "waistcoat", "2 piece", "2-piece", "3 piece", "3-piece"),
+                 (), ("party", "festive", "formal", "embroidered", "embellished")),
+    EventProfile("chand raat", ("chand raat", "chaand raat"),
+                 ("kurta", "shalwar kameez", "frock", "shirt", "trouser", "2 piece", "2-piece"),
+                 (), ("casual", "semi formal", "comfortable", "printed", "embroidered")),
     EventProfile("qawwali", ("qawwali", "sufi night", "qawali night"),
                  ("kurta", "shalwar kameez", "angrakha", "waistcoat", "shawl"),
                  ("black", "white", "maroon", "green"),
@@ -50,7 +56,7 @@ EVENTS: tuple[EventProfile, ...] = (
                  ("kurta", "shalwar kameez", "frock", "maxi", "waistcoat"),
                  ("pastel", "white", "blue", "pink"), ("embroidered", "formal", "traditional")),
     EventProfile("bridal shower", ("bridal shower", "bride to be"),
-                 ("dress", "maxi", "gown", "pishwas", "sharara", "suit"),
+                 ("dress", "jumpsuit", "short kurta", "kurta", "maxi", "gown", "pishwas", "sharara", "suit"),
                  ("white", "pink", "pastel", "lavender", "peach"), ("party", "embroidered", "formal", "festive")),
     EventProfile("baby shower", ("baby shower", "godh bharai"),
                  ("dress", "maxi", "gown", "kurta", "shalwar kameez", "suit"),
@@ -60,9 +66,27 @@ EVENTS: tuple[EventProfile, ...] = (
                  (), ("modest", "embroidered", "traditional", "formal")),
     EventProfile("birthday", ("birthday", "salgreh"),
                  ("dress", "frock", "maxi", "shirt", "kurta", "suit"), (), ("party", "formal", "printed")),
+    EventProfile("dawat", ("dawat", "daawat", "dinner invite", "family dinner", "post wedding dinner", "walima milan"),
+                 ("kurta", "shalwar kameez", "dress", "maxi", "suit", "2 piece", "2-piece", "3 piece", "3-piece"),
+                 (), ("semi formal", "formal", "party", "embroidered")),
+    EventProfile("farewell", ("farewell", "annual dinner", "university dinner", "college dinner"),
+                 ("shalwar kameez", "dress", "gown", "maxi", "suit", "blazer", "kurta"),
+                 (), ("formal", "party", "semi formal", "embroidered")),
     EventProfile("graduation", ("graduation", "convocation"),
                  ("suit", "dress", "kurta", "shalwar kameez", "shirt", "blazer"),
                  ("black", "navy", "white", "beige"), ("formal", "minimal", "classic")),
+    EventProfile("orientation", ("orientation", "freshers orientation", "university orientation"),
+                 ("shalwar kameez", "kurta", "shirt", "trouser", "blazer", "suit"),
+                 (), ("formal", "semi formal", "minimal", "classic")),
+    EventProfile("color day", ("color day", "colour day", "university color day", "school color day"),
+                 ("kurta", "shirt", "dress", "shalwar kameez", "trouser"),
+                 (), ("casual", "semi formal", "solid", "plain")),
+    EventProfile("sports day", ("sports day", "annual sports", "school annual day"),
+                 ("track suit", "tracksuit", "t shirt", "t-shirt", "shirt", "trouser", "kurta"),
+                 (), ("casual", "comfortable", "activewear")),
+    EventProfile("school function", ("school function", "parent teacher meeting", "parents teacher meeting", "school assembly"),
+                 ("kurta", "shalwar kameez", "shirt", "trouser", "2 piece", "2-piece"),
+                 (), ("casual", "semi formal", "plain", "minimal")),
     EventProfile("jummah", ("jummah", "juma", "friday prayer"),
                  ("kurta", "shalwar kameez", "waistcoat"),
                  ("white", "cream", "blue", "grey"), ("traditional", "plain", "embroidered")),
@@ -75,9 +99,9 @@ EVENTS: tuple[EventProfile, ...] = (
     EventProfile("pakistan day", ("pakistan day", "23 march", "twenty third march"),
                  ("kurta", "shalwar kameez", "shirt", "waistcoat"),
                  ("green", "white"), ("printed", "traditional")),
-    EventProfile("cultural day", ("cultural day", "culture day", "heritage day", "sindhi culture day", "school function"),
-                 ("kurta", "shalwar kameez", "ajrak", "waistcoat", "frock", "gharara"),
-                 (), ("traditional", "ethnic", "embroidered", "printed")),
+    EventProfile("cultural day", ("cultural day", "culture day", "heritage day", "sindhi culture day"),
+                 ("kurta", "shalwar kameez", "ajrak", "topi", "phulkari", "peshgabi", "balochi dress", "waistcoat", "frock", "gharara"),
+                 (), ("cultural wear", "traditional", "ethnic", "embroidered", "printed")),
     EventProfile("diwali", ("diwali", "deepavali"),
                  ("lehenga", "sari", "saree", "gharara", "sharara", "kurta", "waistcoat"),
                  ("red", "orange", "pink", "gold", "yellow"), ("embroidered", "embellished", "festive", "traditional")),
@@ -90,13 +114,46 @@ EVENTS: tuple[EventProfile, ...] = (
     EventProfile("mourning", ("janaza", "funeral", "soyem", "chehlum", "condolence"),
                  ("shalwar kameez", "kurta", "abaya", "dupatta"),
                  ("white", "black", "grey", "navy"), ("plain", "modest", "traditional")),
-    EventProfile("office", ("office", "workwear", "job interview", "interview"),
+    EventProfile("office", ("office", "workwear", "job interview", "interview", "corporate event", "formal dinner"),
                  ("suit", "shirt", "trouser", "kurta", "shalwar kameez", "blazer"),
                  ("black", "navy", "white", "beige", "grey"), ("formal", "minimal", "plain")),
     EventProfile("casual", ("casual", "daily wear", "everyday", "university", "college"),
                  ("shirt", "t shirt", "t-shirt", "kurta", "trouser", "jeans", "2 piece", "2-piece"),
                  (), ("casual", "printed", "plain", "comfortable")),
 )
+
+# Primary and secondary tags used by Pakistani e-commerce catalogs when they
+# do not expose a literal event filter. Values are normalized lowercase so
+# they match titles, product types, and Shopify tags consistently.
+EVENT_FORMALITY_TAGS: dict[str, tuple[str, ...]] = {
+    "mehndi": ("party wear", "festive wear", "occasion wear", "party", "festive"),
+    "nikah": ("formal", "occasion wear"),
+    "baraat": ("bridal wear", "occasion wear", "wedding wear", "formal", "bridal"),
+    "walima": ("formal", "occasion wear", "luxury pret"),
+    "engagement": ("formal", "occasion wear", "party wear"),
+    "eid": ("festive wear", "formal", "eid collection"),
+    "eid milan": ("party wear", "festive wear", "formal"),
+    "chand raat": ("casual", "semi formal"),
+    "bridal shower": ("party wear", "semi formal"),
+    "baby shower": ("party wear", "semi formal"),
+    "iftar": ("formal", "semi formal", "festive wear"),
+    "aqiqah": ("formal", "semi formal"),
+    "birthday": ("party wear", "casual"),
+    "dawat": ("semi formal", "formal"),
+    "farewell": ("formal", "party wear"),
+    "graduation": ("formal",),
+    "orientation": ("formal", "semi formal"),
+    "color day": ("casual", "semi formal"),
+    "sports day": ("casual", "activewear"),
+    "school function": ("casual", "semi formal"),
+    "basant": ("festive wear", "casual"),
+    "independence day": ("festive wear", "cultural wear"),
+    "pakistan day": ("festive wear", "cultural wear"),
+    "cultural day": ("festive wear", "cultural wear"),
+    "mourning": ("casual", "modest"),
+    "office": ("semi formal", "formal"),
+    "casual": ("casual", "daily wear"),
+}
 
 _BY_NAME = {event.name: event for event in EVENTS}
 
@@ -137,7 +194,11 @@ def event_match_score(product: Product, event_name: str) -> float:
 
     garment = any(_contains_phrase(text, term) for term in event.garments)
     color = any(_contains_phrase(text, term) for term in event.colors)
-    festive = any(_contains_phrase(text, term) for term in event.festive_markers)
+    formality = EVENT_FORMALITY_TAGS.get(event.name, ())
+    festive = any(
+        _contains_phrase(text, term)
+        for term in (*event.festive_markers, *formality)
+    )
     if not garment or not (color or festive):
         return 0.0
     return 0.5 + (0.25 if color else 0.0) + (0.25 if festive else 0.0)

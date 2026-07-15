@@ -44,8 +44,12 @@ NON_APPAREL_KEYWORDS = [
     "notebook", "diary", "journal", "sunglasses", "fashion glasses",
     "mehndi stencil", "henna stencil", "stencil",
     "wallet", "potli", "mug", "kitchen", "bbq", "eye mask", "sleep mask",
-    # Footwear — a real observed case (Outfitters' "Closed Shoes" category)
-    # showing up in what should be a clothing-only catalog.
+]
+
+# Footwear stays outside the main web app's clothing-only catalog, but the
+# Outfitters extension is a store-catalog assistant and must be able to return
+# the store's real shoe inventory when the shopper asks for it.
+FOOTWEAR_KEYWORDS = [
     "shoes", "sneakers", "sandals", "slides", "chappal", "footwear",
     "heels", "flats", "loafers", "boots", "flip flop", "flip-flop",
 ]
@@ -62,6 +66,7 @@ KIDS_CATEGORY_PREFIXES = ("btk",)
 
 WOMEN_AUDIENCE_WORDS = ["women", "woman", "womens", "ladies", "female"]
 MEN_AUDIENCE_WORDS = ["men", "man", "mens", "male", "gents"]
+UNISEX_AUDIENCE_WORDS = ["unisex", "gender neutral", "gender-neutral"]
 
 
 def html_to_plain_text(raw_html: str) -> str:
@@ -98,9 +103,19 @@ def _extract_shopify_tags(shopify_product: dict[str, Any]) -> list[str]:
     return [str(t).strip() for t in raw if str(t).strip()]
 
 
-def _is_non_apparel(title: str, category: str | None, shopify_tags: list[str]) -> bool:
+def _is_non_apparel(
+    title: str,
+    category: str | None,
+    shopify_tags: list[str],
+    *,
+    allow_footwear: bool = False,
+) -> bool:
     text = f"{title} {category or ''} {' '.join(shopify_tags)}".lower()
-    return any(_contains_word(keyword, text) for keyword in NON_APPAREL_KEYWORDS)
+    excluded = NON_APPAREL_KEYWORDS if allow_footwear else [
+        *NON_APPAREL_KEYWORDS,
+        *FOOTWEAR_KEYWORDS,
+    ]
+    return any(_contains_word(keyword, text) for keyword in excluded)
 
 
 def _is_kids_apparel(
@@ -124,6 +139,8 @@ def _product_department(
     title: str, category: str | None, shopify_tags: list[str], vendor: str | None
 ) -> str | None:
     text = f"{title} {category or ''} {' '.join(shopify_tags)} {vendor or ''}".lower()
+    if any(_contains_word(word, text) for word in UNISEX_AUDIENCE_WORDS):
+        return "unisex"
     women = any(_contains_word(word, text) for word in WOMEN_AUDIENCE_WORDS)
     men = any(_contains_word(word, text) for word in MEN_AUDIENCE_WORDS)
     if women and not men:
@@ -243,7 +260,11 @@ def extract_images(shopify_product: dict[str, Any]) -> tuple[str, str | None]:
 
 
 def map_shopify_to_product(
-    shopify_product: dict[str, Any], brand_slug: str, domain: str
+    shopify_product: dict[str, Any],
+    brand_slug: str,
+    domain: str,
+    *,
+    allow_footwear: bool = False,
 ) -> Product | None:
     """Convert Shopify product JSON to normalized Product schema.
     
@@ -278,7 +299,12 @@ def map_shopify_to_product(
             logger.debug(f"Skipping unit-sale product (sold by {category}): {title}")
             return None
 
-        if _is_non_apparel(title, category, shopify_tags):
+        if _is_non_apparel(
+            title,
+            category,
+            shopify_tags,
+            allow_footwear=allow_footwear,
+        ):
             logger.debug(f"Skipping non-apparel product: {title} ({category})")
             return None
 

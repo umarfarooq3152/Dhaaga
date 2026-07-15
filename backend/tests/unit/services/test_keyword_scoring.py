@@ -168,6 +168,19 @@ def test_color_filter_uses_matching_variant_image():
     assert result.items[0].image == "https://example.com/yellow.jpg"
 
 
+def test_basic_blue_excludes_light_dark_and_navy_shades():
+    base = _product("brand-a", "1", "Oxford Shirt", 3000, colors=["Blue"])
+    dark = _product("brand-b", "1", "Oxford Shirt", 3000, colors=["Dark Blue"])
+    light = _product("brand-c", "1", "Oxford Shirt", 3000, colors=["Light Blue"])
+    navy = _product("brand-d", "1", "Oxford Shirt", 3000, colors=["Navy"])
+
+    result = SearchService.search(
+        [dark, light, navy, base], query="shirt", color="basic blue", page_size=10
+    )
+
+    assert result.items == [base]
+
+
 def test_womenswear_filter_excludes_explicit_menswear_product():
     womens = _product("brand-a", "1", "Linen Kurta", 3000, department="women")
     mens = _product("brand-b", "1", "Linen Kurta", 2800, department="men")

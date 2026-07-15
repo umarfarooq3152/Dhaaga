@@ -247,6 +247,21 @@ class TestMapperBasic:
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is None
 
+    def test_extension_can_opt_in_to_footwear(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Canvas Slip-On",
+            "product_type": "Closed Shoes",
+        }
+        result = map_shopify_to_product(
+            product,
+            "brand",
+            "domain.pk",
+            allow_footwear=True,
+        )
+        assert result is not None
+        assert result.category == "Closed Shoes"
+
     def test_skips_mehndi_stencils_from_apparel_catalog(self):
         product = {
             **SAMPLE_SHOPIFY_PRODUCT,

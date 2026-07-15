@@ -16,6 +16,7 @@ backend/.venv/
 backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.coverage
+/.coverage
 backend/htmlcov/
 backend/*.egg-info/
 backend/dist/

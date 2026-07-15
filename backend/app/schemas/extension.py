@@ -13,8 +13,16 @@ class ExtensionIntent(BaseModel):
     price_min: float | None = Field(default=None, alias="priceMin", ge=0)
     descriptive: str | None = Field(default=None, max_length=300)
     occasion: str | None = Field(default=None, max_length=80)
+    audience: str | None = Field(default=None, pattern="^(men|women)$")
+    wants_kids: bool | None = Field(default=None, alias="wantsKids")
+    child_age_months: int | None = Field(
+        default=None,
+        alias="childAgeMonths",
+        ge=0,
+        le=215,
+    )
 
-    @field_validator("category", "color", "size", "descriptive", "occasion", mode="before")
+    @field_validator("category", "color", "size", "descriptive", "occasion", "audience", mode="before")
     @classmethod
     def normalize_optional_text(cls, value):
         if value is None:
@@ -32,6 +40,9 @@ class ExtensionIntent(BaseModel):
                 self.price_min is not None,
                 self.descriptive,
                 self.occasion,
+                self.audience,
+                self.wants_kids is True,
+                self.child_age_months is not None,
             )
         )
 

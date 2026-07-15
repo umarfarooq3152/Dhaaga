@@ -14,7 +14,7 @@ SYSTEM_INSTRUCTION = """You are Dhaaga's shopping assistant for Pakistani clothi
 Respond ONLY with a single JSON object (no prose, no markdown fences) matching this shape:
 
 {
-  "occasion": "mehndi" | "nikah" | "baraat" | "walima" | "engagement" | "eid" | "qawwali" | "milad" | "aqiqah" | "bridal shower" | "baby shower" | "iftar" | "birthday" | "graduation" | "jummah" | "basant" | "independence day" | "pakistan day" | "cultural day" | "diwali" | "holi" | "christmas" | "mourning" | "office" | "casual" | null,
+  "occasion": "mehndi" | "nikah" | "baraat" | "walima" | "engagement" | "eid" | "eid milan" | "chand raat" | "qawwali" | "milad" | "aqiqah" | "bridal shower" | "baby shower" | "iftar" | "birthday" | "dawat" | "farewell" | "graduation" | "orientation" | "color day" | "sports day" | "school function" | "jummah" | "basant" | "independence day" | "pakistan day" | "cultural day" | "diwali" | "holi" | "christmas" | "mourning" | "office" | "casual" | null,
   "color_preference": string | null,
   "budget_max": number | null,
   "style_descriptors": string[],

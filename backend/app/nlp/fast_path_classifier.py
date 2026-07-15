@@ -13,13 +13,8 @@ from dataclasses import dataclass
 from app.schemas.product import Product
 from app.schemas.session import IntentExtractionResult, SessionState
 from app.kids_age import extract_child_age_months
+from app.nlp.colors import extract_color
 
-KNOWN_COLORS = [
-    "red", "blue", "green", "black", "white", "gold", "maroon", "emerald",
-    "pink", "yellow", "purple", "orange", "beige", "navy", "teal",
-    "lavender", "mint", "rust", "coral", "ivory", "mustard", "peach",
-    "turquoise", "lilac", "crimson", "burgundy",
-]
 
 CHEAPER_PHRASES = ["cheaper", "less expensive", "lower budget", "more affordable", "budget option"]
 MORE_FORMAL_PHRASES = ["more formal", "dressier", "fancier"]
@@ -118,7 +113,7 @@ def classify(
     if any(phrase in lower for phrase in MORE_CASUAL_PHRASES):
         return _match_style_shift(add="casual", remove="formal")
 
-    color_match = next((c for c in KNOWN_COLORS if c in lower), None)
+    color_match = extract_color(lower)
     if color_match and _is_color_only_message(lower, color_match):
         return _match_color(color_match)
 

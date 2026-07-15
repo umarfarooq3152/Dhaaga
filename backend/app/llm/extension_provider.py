@@ -7,8 +7,11 @@ import re
 from groq import AsyncGroq
 
 from app.errors import ExternalServiceError
+from app.kids_age import extract_child_age_months
 from app.schemas.extension import CatalogRanking, CatalogRankings, ExtensionIntent
 from app.nlp.pakistani_events import extract_event
+from app.nlp.fast_path_classifier import extract_department, is_kids_request
+from app.nlp.colors import extract_color
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +19,8 @@ INTENT_SYSTEM_PROMPT = """You are a conversational shopping-intent parser for a 
 Return one complete, updated JSON object with exactly:
 {"category": string|null, "color": string|null, "size": string|null,
  "priceMax": number|null, "priceMin": number|null, "descriptive": string|null,
- "occasion": string|null}
+ "occasion": string|null, "audience": "men"|"women"|null,
+ "wantsKids": boolean|null, "childAgeMonths": number|null}
 
 category is a garment type such as t-shirt, jeans, kurta, or dress. descriptive contains
 style, aesthetic, vibe, material, or occasion language that is not already represented by
@@ -31,9 +35,19 @@ useful descriptive wording such as "earthy for a casual weekend".
 occasion uses canonical Pakistani events including mehndi, nikah, baraat, walima,
 engagement, eid, qawwali, milad, aqiqah, bridal shower, baby shower, iftar,
 birthday, graduation, jummah, basant, independence day, Pakistan day, cultural
-day, Diwali, Holi, Christmas, mourning, office, and casual. Normalize mayun,
+day, Eid Milan, Chand Raat, dawat, farewell/annual dinner, orientation, color
+day, sports day, school function, Diwali, Holi, Christmas, mourning, office,
+and casual. Normalize mayun,
 ubtan, dholki, and sangeet to mehndi; shaadi/wedding to baraat; nikkah to nikah;
 valima/reception to walima; mangni to engagement; convocation to graduation.
+audience is men or women only when explicitly stated. Preserve it across
+refinements, but when the shopper switches audience do not carry an incompatible
+old garment category or size into the new department.
+wantsKids is true only when the shopper asks for a child, kid, boy, girl,
+toddler, or a child age. childAgeMonths is the stated child age converted to
+months. Do not put child ages in size. A standalone new garment request starts a
+new topic; do not carry unrelated constraints from the old garment unless the
+shopper says "instead", "switch", or otherwise clearly asks to refine it.
 Do not guess. With no previous intent, a greeting or non-fashion request returns all nulls.
 Return JSON only, without markdown."""
 
@@ -73,7 +87,49 @@ CLEAR_FIELD_PATTERNS = {
     "price_min": (r"\bno minimum(?: price)?\b", r"\bremove (?:the )?minimum(?: price)?\b", r"\bany price\b"),
     "descriptive": (r"\bany style\b", r"\bno style preference\b", r"\bremove (?:the )?(?:style|vibe|occasion|material)\b"),
     "occasion": (r"\bany occasion\b", r"\bremove (?:the )?occasion\b", r"\bno occasion preference\b"),
+    "audience": (r"\bany (?:gender|department|audience)\b", r"\bshow (?:me )?both\b"),
+    "wants_kids": (r"\b(?:not|no) (?:for )?(?:a )?(?:kid|child)\b", r"\bfor (?:an )?adult\b"),
+    "child_age_months": (r"\bany (?:child )?age\b", r"\bremove (?:the )?age\b"),
 }
+
+
+CATEGORY_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("tank top", (r"\btank\s+tops?\b", r"\bcamisoles?\b")),
+    ("t-shirt", (r"\bt[ -]?shirts?\b", r"\btees?\b")),
+    ("polo", (r"\bpolos?(?:\s+shirts?)?\b",)),
+    ("shoes", (
+        r"\bshoes?\b", r"\bfootwear\b", r"\bsneakers?\b", r"\bsandals?\b",
+        r"\bslides?\b", r"\bloafers?\b", r"\bheels?\b", r"\bflats?\b",
+        r"\bshes\b",
+    )),
+    ("pants", (r"\bpants?\b", r"\btrousers?\b")),
+    ("jeans", (r"\bjeans?\b", r"\bdenims?\b")),
+    ("shorts", (r"\bshorts?\b",)),
+    ("shirt", (r"\bshirts?\b",)),
+    ("sleeve", (r"\bsleeves?\b",)),
+    ("hoodie", (r"\bhoodies?\b",)),
+    ("sweatshirt", (r"\bsweatshirts?\b",)),
+    ("sweater", (r"\bsweaters?\b",)),
+    ("jacket", (r"\bjackets?\b",)),
+    ("kurta", (r"\bkurtas?\b",)),
+    ("dress", (r"\bdresses?\b",)),
+    ("skirt", (r"\bskirts?\b",)),
+    ("top", (r"\btops?\b",)),
+)
+
+TOPIC_REFINEMENT_PATTERN = re.compile(
+    r"\b(?:instead|switch(?:ing)?|replace|remove|any (?:colou?r|size|price)|"
+    r"change (?:it|them|the category)|how about)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_explicit_category(query: str) -> str | None:
+    normalized = " ".join(query.lower().replace("’", "'").split())
+    for category, patterns in CATEGORY_PATTERNS:
+        if any(re.search(pattern, normalized) for pattern in patterns):
+            return category
+    return None
 
 
 def merge_intent_context(
@@ -82,18 +138,111 @@ def merge_intent_context(
     query: str,
 ) -> ExtensionIntent:
     """Keep accumulated constraints unless the shopper explicitly replaces or clears them."""
+    explicit_category = extract_explicit_category(query)
+    if explicit_category is not None:
+        parsed = parsed.model_copy(update={"category": explicit_category})
     explicit_event = extract_event(query)
     if explicit_event is not None:
         parsed = parsed.model_copy(update={"occasion": explicit_event})
+    explicit_audience = extract_department(query.lower())
+    if explicit_audience is not None:
+        parsed = parsed.model_copy(update={"audience": explicit_audience})
+    explicit_color = extract_color(query)
+    if explicit_color is not None:
+        parsed = parsed.model_copy(update={"color": explicit_color})
+    child_age_months = extract_child_age_months(query)
+    explicit_kids = is_kids_request(query)
+    if explicit_kids:
+        parsed = parsed.model_copy(update={
+            "wants_kids": True,
+            "child_age_months": child_age_months,
+            "audience": None,
+        })
     if previous is None:
         return parsed
     normalized = " ".join(query.lower().split())
     if any(re.search(pattern, normalized) for pattern in RESET_ALL_PATTERNS):
         return parsed
 
+    topic_changed = bool(
+        explicit_category
+        and previous.category
+        and explicit_category != previous.category
+        and not TOPIC_REFINEMENT_PATTERN.search(normalized)
+    )
+    if topic_changed:
+        # A bare/new category such as "polos" or "tank tops" is a new
+        # search, not permission to drag an old kids/size/style combination
+        # into a different product family. Keep fields the parser found in
+        # the new sentence, but remove values it merely copied verbatim.
+        updates: dict[str, object] = {}
+        for field in (
+            "color", "size", "price_max", "price_min", "descriptive",
+            "occasion", "audience", "wants_kids", "child_age_months",
+        ):
+            value = getattr(parsed, field)
+            text_value_is_explicit = bool(
+                isinstance(value, str)
+                and all(
+                    re.search(rf"\b{re.escape(term)}\b", normalized)
+                    for term in re.findall(r"[a-z0-9]+", value.lower())
+                )
+            )
+            price_is_explicit = field in {"price_max", "price_min"} and bool(
+                re.search(r"\b(?:rs\.?|pkr|under|below|over|above|budget|cheaper|\d)\b", normalized)
+            )
+            deterministic_is_explicit = (
+                (field == "occasion" and explicit_event is not None)
+                or (field == "audience" and explicit_audience is not None)
+                or (field == "color" and explicit_color is not None)
+                or (field == "wants_kids" and explicit_kids)
+                or (field == "child_age_months" and child_age_months is not None)
+            )
+            if (
+                value == getattr(previous, field)
+                and not text_value_is_explicit
+                and not price_is_explicit
+                and not deterministic_is_explicit
+            ):
+                updates[field] = None
+        if explicit_event is not None:
+            updates["occasion"] = explicit_event
+        if explicit_audience is not None:
+            updates["audience"] = explicit_audience
+        if explicit_color is not None:
+            updates["color"] = explicit_color
+        if explicit_kids:
+            updates["wants_kids"] = True
+            updates["child_age_months"] = child_age_months
+            updates["audience"] = None
+        return parsed.model_copy(update=updates)
+
+    audience_changed = bool(
+        explicit_audience and previous.audience and explicit_audience != previous.audience
+    )
+    if audience_changed:
+        category_explicit = bool(
+            parsed.category
+            and all(term in normalized for term in re.findall(r"[a-z0-9]+", parsed.category.lower()))
+        )
+        size_explicit = bool(
+            parsed.size
+            and re.search(
+                rf"(?<![a-z0-9]){re.escape(parsed.size.lower())}(?![a-z0-9])",
+                normalized,
+            )
+        )
+        parsed = parsed.model_copy(update={
+            "category": parsed.category if category_explicit else None,
+            "size": parsed.size if size_explicit else None,
+            "descriptive": None,
+        })
+
     updates = {}
     for field, clear_patterns in CLEAR_FIELD_PATTERNS.items():
         if getattr(parsed, field) is not None:
+            continue
+        if audience_changed and field in {"category", "size", "descriptive"}:
             continue
         explicitly_cleared = any(re.search(pattern, normalized) for pattern in clear_patterns)
         if not explicitly_cleared:

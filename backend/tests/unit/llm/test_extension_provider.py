@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.llm.extension_provider import GroqExtensionProvider
+from app.llm.extension_provider import GroqExtensionProvider, extract_explicit_category
 from app.schemas.extension import ExtensionIntent
 
 
@@ -119,6 +119,19 @@ async def test_event_alias_is_normalized_deterministically():
 
 
 @pytest.mark.asyncio
+async def test_color_shade_is_normalized_deterministically():
+    provider = GroqExtensionProvider("test-key", "test-model")
+    provider._complete = AsyncMock(
+        return_value='{"category":"shirt","color":"blue","size":null,'
+        '"priceMax":null,"priceMin":null,"descriptive":null,"occasion":null}'
+    )
+
+    result = await provider.parse_intent("a navy blue shirt")
+
+    assert result.color == "dark blue"
+
+
+@pytest.mark.asyncio
 async def test_event_context_persists_across_extension_refinements():
     provider = GroqExtensionProvider("test-key", "test-model")
     provider._complete = AsyncMock(
@@ -132,3 +145,100 @@ async def test_event_context_persists_across_extension_refinements():
     assert result.occasion == "mehndi"
     assert result.category == "sharara"
     assert result.color == "blue"
+
+
+@pytest.mark.asyncio
+async def test_audience_switch_drops_old_category_size_and_keeps_neutral_context():
+    provider = GroqExtensionProvider("test-key", "test-model")
+    provider._complete = AsyncMock(
+        return_value='{"category":"lehenga","color":"green","size":"M",'
+        '"priceMax":20000,"priceMin":null,"descriptive":"embroidered",'
+        '"occasion":"mehndi","audience":"men"}'
+    )
+    previous = ExtensionIntent(
+        category="lehenga", color="green", size="M", priceMax=20000,
+        descriptive="embroidered", occasion="mehndi", audience="women",
+    )
+
+    result = await provider.parse_intent("show men's instead", previous)
+
+    assert result.audience == "men"
+    assert result.category is None
+    assert result.size is None
+    assert result.descriptive is None
+    assert result.occasion == "mehndi"
+    assert result.color == "green"
+    assert result.price_max == 20000
+
+
+@pytest.mark.parametrize(
+    ("message", "category"),
+    [
+        ("shes", "shoes"),
+        ("formal shoes", "shoes"),
+        ("find me shoes i can wear with anything", "shoes"),
+        ("polos", "polo"),
+        ("tank tops", "tank top"),
+        ("formal pants", "pants"),
+        ("sleeves", "sleeve"),
+    ],
+)
+def test_common_catalog_categories_are_recognized_deterministically(message, category):
+    assert extract_explicit_category(message) == category
+
+
+@pytest.mark.asyncio
+async def test_bare_new_category_drops_copied_old_topic_constraints():
+    provider = GroqExtensionProvider("test-key", "test-model")
+    provider._complete = AsyncMock(
+        return_value='{"category":"tank top","color":"black","size":null,'
+        '"priceMax":null,"priceMin":null,"descriptive":"formal",'
+        '"occasion":null,"audience":null,"wantsKids":true,"childAgeMonths":60}'
+    )
+    previous = ExtensionIntent(
+        category="pants",
+        color="black",
+        descriptive="formal",
+        wantsKids=True,
+        childAgeMonths=60,
+    )
+
+    result = await provider.parse_intent("tank tops", previous)
+
+    assert result.category == "tank top"
+    assert result.color is None
+    assert result.descriptive is None
+    assert result.wants_kids is None
+    assert result.child_age_months is None
+
+
+@pytest.mark.asyncio
+async def test_new_topic_keeps_constraints_explicitly_repeated_in_new_message():
+    provider = GroqExtensionProvider("test-key", "test-model")
+    provider._complete = AsyncMock(
+        return_value='{"category":"pants","color":"black","size":null,'
+        '"priceMax":null,"priceMin":null,"descriptive":"formal"}'
+    )
+    previous = ExtensionIntent(category="shirt", color="black", descriptive="formal")
+
+    result = await provider.parse_intent("black formal pants", previous)
+
+    assert result.category == "pants"
+    assert result.color == "black"
+    assert result.descriptive == "formal"
+
+
+@pytest.mark.asyncio
+async def test_kids_age_is_extracted_even_when_model_misses_it():
+    provider = GroqExtensionProvider("test-key", "test-model")
+    provider._complete = AsyncMock(
+        return_value='{"category":"pants","color":null,"size":null,'
+        '"priceMax":null,"priceMin":null,"descriptive":"formal"}'
+    )
+
+    result = await provider.parse_intent("formal pants for my 5 year old kid")
+
+    assert result.category == "pants"
+    assert result.wants_kids is True
+    assert result.child_age_months == 60
+    assert result.size is None

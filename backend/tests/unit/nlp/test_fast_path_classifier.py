@@ -119,6 +119,12 @@ def test_short_color_message_overwrites_color():
     assert match.diff.color_preference == "blue"
 
 
+def test_color_fast_path_preserves_requested_shade():
+    match = classify("navy blue instead", SessionState(color_preference="blue"), [])
+    assert match is not None
+    assert match.diff.color_preference == "dark blue"
+
+
 def test_long_message_with_color_word_does_not_fast_path():
     # A longer, more complex request should go to full LLM extraction instead
     # of being misclassified as a simple color-swap.

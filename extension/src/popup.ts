@@ -127,6 +127,12 @@ function intentLabels(intent: ShoppingIntent): string[] {
   const labels: string[] = [];
   if (intent.category) labels.push(intent.category);
   if (intent.occasion) labels.push(intent.occasion);
+  if (intent.audience) labels.push(intent.audience === 'women' ? "Women's" : "Men's");
+  if (intent.wantsKids) {
+    labels.push(intent.childAgeMonths !== null
+      ? `Age ${Math.floor(intent.childAgeMonths / 12)}`
+      : "Kids'");
+  }
   if (intent.color) labels.push(intent.color);
   if (intent.size) labels.push(`Size ${intent.size.toUpperCase()}`);
   if (intent.priceMin !== null && intent.priceMax !== null) {
@@ -214,7 +220,8 @@ function renderResults(result: SearchResult | null): void {
 
 function assistantResultSummary(result: SearchResult): string {
   if (result.products.length === 0) {
-    return 'I couldn’t find an exact match for that combination. Tell me which detail you want to change and I’ll keep digging.';
+    const understood = result.intent.category ? ` for ${result.intent.category}` : '';
+    return `I understood the request${understood}, but couldn’t find an exact match for that combination in Outfitters. Tell me which detail you want to change and I’ll keep digging.`;
   }
   const count = result.products.length;
   const relaxed = result.meta.relaxed

@@ -6,6 +6,7 @@ from typing import Any
 
 from app.kids_age import product_supports_age
 from app.nlp.pakistani_events import event_match_score
+from app.nlp.colors import matching_color
 from app.schemas.product import Product, ProductSearchResponse
 
 logger = logging.getLogger(__name__)
@@ -233,16 +234,16 @@ def _apply_filters(
         filtered = [p for p in filtered if event_match_score(p, occasion) > 0]
 
     if color:
-        color_lower = color.lower()
-        filtered = [
-            p for p in filtered
-            if any(color_lower in c.lower() for c in p.colors)
+        color_matches = [
+            (product, matching_color(color, product.colors))
+            for product in filtered
         ]
-        filtered = [
-            p.model_copy(update={"image": p.color_images[color_lower]})
-            if color_lower in p.color_images else p
-            for p in filtered
-        ]
+        filtered = []
+        for product, matched_color in color_matches:
+            if matched_color is None:
+                continue
+            image = product.color_images.get(matched_color.lower())
+            filtered.append(product.model_copy(update={"image": image}) if image else product)
 
     if size:
         filtered = [p for p in filtered if size in p.sizes]

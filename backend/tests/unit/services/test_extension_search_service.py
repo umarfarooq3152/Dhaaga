@@ -99,6 +99,20 @@ async def test_filters_color_size_and_price_on_the_same_available_variant():
 
 
 @pytest.mark.asyncio
+async def test_extension_base_blue_excludes_other_blue_shades():
+    base = shopify_product(1, "Blue Oxford Shirt", [variant(11, "Blue", "M", 2500)])
+    dark = shopify_product(2, "Dark Blue Oxford Shirt", [variant(21, "Dark Blue", "M", 2500)])
+    light = shopify_product(3, "Light Blue Oxford Shirt", [variant(31, "Light Blue", "M", 2500)])
+    provider = FakeProvider(ExtensionIntent(category="shirt", color="blue"))
+
+    response = await service_for([dark, light, base], provider).search(
+        "basic blue shirt", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+
+
+@pytest.mark.asyncio
 async def test_descriptive_search_ranks_reconciled_candidate_ids():
     products = [
         shopify_product(1, "Olive Weekend Shirt", [variant(11, "Olive", "M", 2500)]),
@@ -220,6 +234,26 @@ async def test_mehndi_intent_uses_event_appropriate_products_without_literal_tag
 
 
 @pytest.mark.asyncio
+async def test_audience_switch_returns_only_requested_department_products():
+    mens = shopify_product(
+        1, "Embroidered Kurta", [variant(11, "Green", "M", 5000)],
+        product_type="Kurta", tags=["Men", "Embroidered"],
+    )
+    womens = shopify_product(
+        2, "Embroidered Kurta", [variant(21, "Green", "M", 5000)],
+        product_type="Kurta", tags=["Women", "Embroidered"],
+    )
+    provider = FakeProvider(ExtensionIntent(audience="men", category="kurta"))
+
+    response = await service_for([womens, mens], provider).search(
+        "show men's instead", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert "men's department" in response.products[0].reason.lower()
+
+
+@pytest.mark.asyncio
 async def test_structured_only_miss_returns_a_true_empty_result():
     product = shopify_product(1, "Blue Shirt", [variant(11, "Blue", "S", 4000)])
     provider = FakeProvider(ExtensionIntent(color="black", size="M", priceMax=3000))
@@ -243,6 +277,84 @@ async def test_extension_excludes_kids_products_until_it_has_a_kids_flow():
         "olive shirt", "https://outfitters.com.pk"
     )
     assert response.products == []
+
+
+@pytest.mark.asyncio
+async def test_extension_returns_only_age_compatible_kids_products():
+    age_five = shopify_product(
+        1,
+        "Kids Formal Wide Leg Pants",
+        [variant(11, "Black", "5-6Y", 2500)],
+        product_type="TROUSERS",
+        tags=["Kids", "5-6Y", "Formal"],
+    )
+    age_five["options"][1] = {"name": "Size", "values": ["5-6Y"]}
+    too_old = shopify_product(
+        2,
+        "Junior Formal Pants",
+        [variant(21, "Black", "10-12Y", 3000)],
+        product_type="TROUSERS",
+        tags=["Kids", "10-12Y", "Formal"],
+    )
+    too_old["options"][1] = {"name": "Size", "values": ["10-12Y"]}
+    provider = FakeProvider(
+        ExtensionIntent(category="pants", wantsKids=True, childAgeMonths=60)
+    )
+
+    response = await service_for([too_old, age_five], provider).search(
+        "formal pants for my 5 year old kid", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert "kids' range" in response.products[0].reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_extension_can_return_footwear_without_admitting_other_non_apparel():
+    shoes = shopify_product(
+        1,
+        "Chunky Suede Loafers",
+        [variant(11, "Black", "42", 5500)],
+        product_type="CLOSED SHOES",
+        tags=["Men", "Formal"],
+    )
+    perfume = shopify_product(
+        2,
+        "Noir Fragrance",
+        [variant(21, "Black", "M", 4500)],
+        product_type="FRAGRANCES",
+    )
+    provider = FakeProvider(ExtensionIntent(category="shoes"))
+
+    response = await service_for([perfume, shoes], provider).search(
+        "formal shoes", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_sleeves_matches_outfitters_compact_half_sleeve_tag():
+    sleeved = shopify_product(
+        1,
+        "Basic Raglan T-Shirt",
+        [variant(11, "Black", "M", 2500)],
+        tags=["Men", "M-TS-RegHalfSleeveXXL", "T-Shirts"],
+    )
+    sleeveless = shopify_product(
+        2,
+        "Sleeveless Ribbed Dress",
+        [variant(21, "Black", "M", 3500)],
+        product_type="DRESSES",
+        tags=["Women", "Sleeveless"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="sleeve"))
+
+    response = await service_for([sleeveless, sleeved], provider).search(
+        "sleeves", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
 
 
 @pytest.mark.asyncio

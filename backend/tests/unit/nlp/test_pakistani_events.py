@@ -21,6 +21,13 @@ def test_pakistani_event_aliases_normalize_to_canonical_names():
         "mangni look": "engagement",
         "14 August kurta": "independence day",
         "convocation outfit": "graduation",
+        "clothes for chand raat": "chand raat",
+        "post wedding family dinner": "dawat",
+        "university annual dinner": "farewell",
+        "school colour day": "color day",
+        "school annual day": "sports day",
+        "parent teacher meeting": "school function",
+        "rukhsati outfit": "baraat",
     }
     for query, expected in cases.items():
         assert extract_event(query) == expected
@@ -56,3 +63,17 @@ def test_mehndi_search_curates_inferred_products_without_literal_event_tag():
     )
 
     assert result.items == [festive]
+
+
+def test_mehndi_uses_ecommerce_formality_tags_from_guide():
+    party_wear = _product(
+        "Silk Sharara Set", category="Sharara", colors=["Grey"],
+        tags=["Party Wear"],
+    )
+    daily = _product(
+        "Plain Sharara Set", category="Sharara", colors=["Grey"],
+        tags=["Daily Wear"],
+    )
+
+    assert event_match_score(party_wear, "mehndi") > 0
+    assert event_match_score(daily, "mehndi") == 0

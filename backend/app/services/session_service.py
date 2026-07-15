@@ -10,6 +10,7 @@ from app.nlp.diff_merge import merge_session_state
 from app.kids_age import extract_age_ranges, extract_child_age_months
 from app.nlp.fast_path_classifier import classify, extract_department, is_kids_request
 from app.nlp.pakistani_events import extract_event, is_known_event
+from app.nlp.colors import extract_color
 from app.repositories.brand_repo import BrandRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.events_repo import SessionEventRepository
@@ -32,6 +33,20 @@ DEFAULT_PAGE_SIZE = 40
 # *first* couple of turns on a vague query — it never re-hides results
 # already being shown.
 MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS = 2
+
+GENDERED_GARMENT_TERMS = {
+    "lehenga", "gharara", "sharara", "pishwas", "sari", "saree", "abaya",
+    "frock", "gown", "maxi", "dress", "sherwani", "prince coat", "blazer",
+    "waistcoat", "kurta", "shalwar kameez", "kameez",
+}
+
+
+def _styles_after_department_switch(styles: list[str]) -> list[str]:
+    """Keep neutral aesthetics but discard old audience-specific garments."""
+    return [
+        style for style in styles
+        if not any(term in style.lower() for term in GENDERED_GARMENT_TERMS)
+    ]
 
 
 def _known_signal_count(state: SessionState) -> int:
@@ -292,11 +307,19 @@ class SessionService:
         if is_kids_request(text):
             diff.wants_kids = True
         explicit_department = extract_department(text.lower())
+        department_changed = bool(
+            explicit_department
+            and current_state.department
+            and explicit_department != current_state.department
+        )
         if explicit_department is not None:
             diff.department = explicit_department
         explicit_event = extract_event(text)
         if explicit_event is not None:
             diff.occasion = explicit_event
+        explicit_color = extract_color(text)
+        if explicit_color is not None:
+            diff.color_preference = explicit_color
         child_age_months = extract_child_age_months(text)
         if child_age_months is not None:
             diff.child_age_months = child_age_months
@@ -332,6 +355,13 @@ class SessionService:
             )
 
         new_state = merge_session_state(current_state, diff)
+        if department_changed:
+            new_state = new_state.model_copy(update={
+                "style_descriptors": _styles_after_department_switch(new_state.style_descriptors),
+                "size": None,
+                "wants_kids": False,
+                "child_age_months": None,
+            })
 
         if new_state.department is None and not new_state.wants_kids:
             reply = _department_gate_reply(new_state)
@@ -356,6 +386,7 @@ class SessionService:
         if (
             _known_signal_count(new_state) < MIN_SIGNALS_BEFORE_SHOWING_PRODUCTS
             and not is_known_event(new_state.occasion)
+            and not department_changed
         ):
             # Fast-path replies ("Updated to pink") assume they're always
             # showing refined results — true when refining an ongoing

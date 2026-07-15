@@ -21,6 +21,7 @@ from app.services.extension_catalog_service import ExtensionCatalogService
 from app.nlp.pakistani_events import event_match_score
 from app.schemas.product import Product
 from app.shopify.mapper import map_shopify_to_product
+from app.nlp.colors import colors_match, extract_color
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class ExtensionSearchError(RuntimeError):
 class VariantFact:
     price: float
     options: dict[str, str]
+    image_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,9 @@ class Candidate:
     variants: list[VariantFact]
     color_is_variant_option: bool
     size_is_variant_option: bool
+    department: str | None
+    is_kids: bool
+    age_ranges_months: list[tuple[int, int]]
 
     @property
     def searchable_text(self) -> str:
@@ -81,6 +86,14 @@ SIZE_ALIASES = {
 }
 
 RANKING_PROMPT_CANDIDATE_LIMIT = 24
+
+CATEGORY_ALIASES = {
+    "shoes": ("shoe", "footwear", "sneaker", "sandal", "slide", "loafer", "heel", "flat"),
+    "pants": ("pant", "trouser"),
+    "polo": ("polo",),
+    "tank top": ("tank top", "camisole"),
+    "t-shirt": ("t shirt", "tee"),
+}
 
 
 def _plain_text(value: object, max_length: int = 120) -> str:
@@ -104,7 +117,7 @@ def _tags(raw: object) -> list[str]:
         values = raw
     else:
         values = []
-    return [_plain_text(value, 60) for value in values if _plain_text(value, 60)][:20]
+    return [_plain_text(value, 60) for value in values if _plain_text(value, 60)][:60]
 
 
 def _variant_options(product: dict, variant: dict) -> tuple[dict[str, str], bool, bool]:
@@ -127,11 +140,13 @@ def _variant_options(product: dict, variant: dict) -> tuple[dict[str, str], bool
 def _candidate_from_shopify(product: dict, domain: str) -> Candidate | None:
     # Reuse the mature web catalog's apparel, stock, price, kids, and image
     # quality gates while retaining raw variants for exact conjunctions.
-    mapped = map_shopify_to_product(product, "extension", domain)
-    # The existing web app is gaining a separate kids flow, but this approved
-    # one-shot extension MVP has no kids intent/sizing contract. Keep those
-    # products out of its adult fashion shortlist until that scope is added.
-    if mapped is None or mapped.is_kids:
+    mapped = map_shopify_to_product(
+        product,
+        "extension",
+        domain,
+        allow_footwear=True,
+    )
+    if mapped is None:
         return None
 
     variants: list[VariantFact] = []
@@ -149,7 +164,12 @@ def _candidate_from_shopify(product: dict, domain: str) -> Candidate | None:
         options, variant_has_color, variant_has_size = _variant_options(product, variant)
         has_color_option = has_color_option or variant_has_color
         has_size_option = has_size_option or variant_has_size
-        variants.append(VariantFact(price=price, options=options))
+        variant_color = next(
+            (value for name, value in options.items() if "color" in name or "colour" in name),
+            None,
+        )
+        variant_image = mapped.color_images.get(variant_color.lower()) if variant_color else None
+        variants.append(VariantFact(price=price, options=options, image_url=variant_image))
     if not variants:
         return None
 
@@ -168,6 +188,9 @@ def _candidate_from_shopify(product: dict, domain: str) -> Candidate | None:
         variants=variants,
         color_is_variant_option=has_color_option,
         size_is_variant_option=has_size_option,
+        department=mapped.department,
+        is_kids=mapped.is_kids,
+        age_ranges_months=mapped.age_ranges_months,
     )
 
 
@@ -183,13 +206,29 @@ def _option_value(variant: VariantFact, kind: str) -> str | None:
 def _matches_category(candidate: Candidate, category: str | None) -> bool:
     if not category:
         return True
-    terms = _normalize_words(category).split()
     haystack = _normalize_words(candidate.searchable_text)
+    canonical = _normalize_words(category)
+    if canonical == "sleeve":
+        # Outfitters encodes this inside compact tags such as
+        # "M-TS-RegHalfSleeveXXL", not as a standalone product type.
+        return "sleeve" in haystack.replace(" ", "") and "sleeveless" not in haystack
+    aliases = CATEGORY_ALIASES.get(canonical)
+    if aliases:
+        return any(
+            re.search(rf"\b{re.escape(_normalize_words(alias))}s?\b", haystack)
+            for alias in aliases
+        )
+    terms = canonical.split()
     return bool(terms) and all(re.search(rf"\b{re.escape(term)}s?\b", haystack) for term in terms)
 
 
+def _supports_child_age(candidate: Candidate, child_age_months: int | None) -> bool:
+    if child_age_months is None:
+        return True
+    return any(start <= child_age_months <= end for start, end in candidate.age_ranges_months)
+
+
 def _matching_variants(candidate: Candidate, intent: ExtensionIntent) -> list[VariantFact]:
-    color_query = _normalize_words(intent.color or "")
     requested_size = _normalize_size(intent.size or "")
     product_text = _normalize_words(candidate.searchable_text)
     matches = []
@@ -202,9 +241,12 @@ def _matching_variants(candidate: Candidate, intent: ExtensionIntent) -> list[Va
         if intent.color:
             color_value = _option_value(variant, "color")
             if candidate.color_is_variant_option:
-                if not color_value or color_query not in _normalize_words(color_value):
+                if not color_value or not colors_match(intent.color, color_value):
                     continue
-            elif not re.search(rf"\b{re.escape(color_query)}\b", product_text):
+            elif not (
+                (text_color := extract_color(product_text))
+                and colors_match(intent.color, text_color)
+            ):
                 continue
 
         if intent.size:
@@ -232,12 +274,20 @@ def _structured_reason(intent: ExtensionIntent) -> str:
         facts.append(f"matches {intent.category}")
     if intent.occasion:
         facts.append(f"suited to {intent.occasion}")
+    if intent.audience:
+        facts.append(f"from the {intent.audience}'s department")
+    if intent.wants_kids:
+        facts.append("from the kids' range")
     if not facts:
         return "Matches the details in your request."
     if len(facts) == 1:
         return facts[0][0].upper() + facts[0][1:] + "."
     prefix = ", ".join(facts[:-1])
     return prefix[0].upper() + prefix[1:] + f", and {facts[-1]}."
+
+
+def _result_image(candidate: Candidate, variants: list[VariantFact]) -> str:
+    return next((variant.image_url for variant in variants if variant.image_url), candidate.image_url)
 
 
 def _metadata_score(candidate: Candidate, intent: ExtensionIntent) -> float:
@@ -334,6 +384,12 @@ class ExtensionSearchService:
 
         strict: list[tuple[Candidate, list[VariantFact]]] = []
         for candidate in candidates:
+            if candidate.is_kids != (intent.wants_kids is True):
+                continue
+            if not _supports_child_age(candidate, intent.child_age_months):
+                continue
+            if intent.audience and candidate.department not in {intent.audience, "unisex"}:
+                continue
             if not _matches_category(candidate, intent.category):
                 continue
             if intent.occasion and _candidate_event_score(candidate, intent.occasion) <= 0:
@@ -381,7 +437,7 @@ class ExtensionSearchService:
                         id=candidate.id,
                         title=candidate.title,
                         price=min(variant.price for variant in matching_variants),
-                        imageUrl=candidate.image_url,
+                        imageUrl=_result_image(candidate, matching_variants),
                         productUrl=candidate.product_url,
                         score=by_id[candidate.id].score,
                         reason=by_id[candidate.id].reason,
@@ -394,7 +450,7 @@ class ExtensionSearchService:
                         id=candidate.id,
                         title=candidate.title,
                         price=min(variant.price for variant in matching_variants),
-                        imageUrl=candidate.image_url,
+                        imageUrl=_result_image(candidate, matching_variants),
                         productUrl=candidate.product_url,
                         score=min(10, max(1, _metadata_score(candidate, intent))),
                         reason=_structured_reason(intent),
@@ -409,7 +465,7 @@ class ExtensionSearchService:
                         id=candidate.id,
                         title=candidate.title,
                         price=min(variant.price for variant in matching_variants),
-                        imageUrl=candidate.image_url,
+                        imageUrl=_result_image(candidate, matching_variants),
                         productUrl=candidate.product_url,
                         score=min(10, max(1, _metadata_score(candidate, intent))),
                         reason=_structured_reason(intent),
@@ -422,7 +478,7 @@ class ExtensionSearchService:
                     id=candidate.id,
                     title=candidate.title,
                     price=min(variant.price for variant in matching_variants),
-                    imageUrl=candidate.image_url,
+                    imageUrl=_result_image(candidate, matching_variants),
                     productUrl=candidate.product_url,
                     score=10,
                     reason=_structured_reason(intent),

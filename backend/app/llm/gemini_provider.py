@@ -21,7 +21,9 @@ Fields to extract (use null/empty when not present in THIS message — never gue
   dholki/sangeet), nikah, baraat (wedding/shaadi), walima, engagement,
   eid, qawwali, milad, aqiqah, bridal shower, baby shower, iftar,
   birthday, graduation, jummah, basant, independence day, Pakistan day,
-  cultural day, Diwali, Holi, Christmas, mourning, office, or casual (or null)
+  cultural day, Eid Milan, Chand Raat, dawat, farewell/annual dinner,
+  orientation, color day, sports day, school function, Diwali, Holi,
+  Christmas, mourning, office, or casual (or null)
 - color_preference: a single color mentioned (or null) — this OVERWRITES any prior color
 - budget_max: a maximum price in PKR if mentioned (or null)
 - style_descriptors: fuzzy style words/phrases AND any specific garment/category named
