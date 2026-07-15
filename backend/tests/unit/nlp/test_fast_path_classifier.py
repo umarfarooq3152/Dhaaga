@@ -53,6 +53,26 @@ def test_kids_request_by_keyword():
         assert match.diff.clarify is True
 
 
+def test_kids_request_survives_dropped_o_in_old():
+    # Real bug: this exact phrasing (a typo, or a voice-transcription
+    # artifact — this app now also does real voice search via Whisper)
+    # slipped through undetected because the strict "...years old" regex
+    # required the literal substring "old", which "ld" doesn't contain.
+    text = "I want to dress up my 2 year ld daughter in something pink and traditional"
+    match = classify(text, SessionState(), [])
+    assert match is not None
+    assert match.diff.clarify is True
+    assert match.diff.style_descriptors == []
+
+
+def test_age_alone_without_relation_word_does_not_trigger_kids_request():
+    # "2 years" alone (no "old", no daughter/son/kid/etc.) is too weak a
+    # signal on its own — e.g. "shopping here for 2 years" shouldn't be
+    # treated as a kids request.
+    match = classify("I've been shopping here for 2 years", SessionState(), [])
+    assert match is None
+
+
 def test_adult_age_does_not_trigger_kids_request():
     match = classify("something for my 25 year old sister's wedding", SessionState(), [])
     # Not a kids match — either falls through to None or matches some

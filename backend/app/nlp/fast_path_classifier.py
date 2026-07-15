@@ -40,8 +40,14 @@ KIDS_KEYWORDS = [
     "kids outfit", "kids clothes", "kid's", "kids'",
     "children's wear", "childrens wear", "children's clothing",
 ]
-KIDS_AGE_PATTERN = re.compile(r"\b(\d{1,2})\s*[- ]?years?[- ]?old\b")
+KIDS_AGE_PATTERN = re.compile(r"\b(\d{1,2})\s*[- ]?years?\b")
 KIDS_MAX_AGE = 12
+# Words confirming an age number refers to a child, not e.g. "2 years
+# experience" or "married 2 years" — required alongside the age pattern
+# when the text doesn't literally say "old" (real observed case: "2 year
+# ld daughter", a typo/transcription artifact dropping the "o" from "old",
+# didn't match a strict "...years old" pattern at all).
+KIDS_RELATION_WORDS = ["daughter", "son", "kid", "child", "baby", "toddler"]
 
 
 @dataclass
@@ -120,8 +126,15 @@ def _is_color_only_message(lower_text: str, color: str) -> bool:
 def _is_kids_request(lower_text: str) -> bool:
     if any(keyword in lower_text for keyword in KIDS_KEYWORDS):
         return True
+
     match = KIDS_AGE_PATTERN.search(lower_text)
-    return match is not None and int(match.group(1)) <= KIDS_MAX_AGE
+    if match is None or int(match.group(1)) > KIDS_MAX_AGE:
+        return False
+
+    # A small age number alone isn't enough signal ("2 years experience",
+    # "married 2 years") — require "old" or an explicit relation word to
+    # confirm it's actually describing a child's age.
+    return "old" in lower_text or any(word in lower_text for word in KIDS_RELATION_WORDS)
 
 
 def _match_kids_request() -> FastPathMatch:
