@@ -29,12 +29,12 @@ SHOW_MORE_PHRASES = ["show more", "more options", "more results", "see more"]
 BUDGET_REDUCTION_FACTOR = 0.9
 PRICE_ROUNDING = 1000
 
-# Dhaaga has no kids' catalog at all (menswear/womenswear adult sizing
-# only) — this is a deterministic, code-level guarantee rather than an
-# LLM prompt instruction, since the LLM (especially the Groq fallback)
-# was observed not reliably following the "don't show adult clothing for
-# a child" instruction, extracting a nonsensical size="kids" and
-# surfacing adult womenswear as if it matched a toddler's outfit.
+# Detects a shopper buying for a child, so session_service can set
+# wants_kids=True deterministically (see is_kids_request) rather than
+# relying on an LLM prompt instruction — the LLM (especially the Groq
+# fallback) was observed not reliably following a "shopping for a kid"
+# instruction, extracting a nonsensical size="kids" and surfacing adult
+# womenswear as if it matched a toddler's outfit.
 KIDS_KEYWORDS = [
     "toddler", "infant", "newborn", "baby girl", "baby boy",
     "kids outfit", "kids clothes", "kid's", "kids'",
@@ -86,9 +86,6 @@ def classify(
     """
     lower = text.lower().strip()
 
-    if _is_kids_request(lower):
-        return _match_kids_request()
-
     if any(phrase in lower for phrase in CHEAPER_PHRASES):
         return _match_cheaper(last_results)
 
@@ -123,7 +120,14 @@ def _is_color_only_message(lower_text: str, color: str) -> bool:
     return word_count <= 6
 
 
-def _is_kids_request(lower_text: str) -> bool:
+def is_kids_request(text: str) -> bool:
+    """True if the message indicates the shopper is buying for a child —
+    used by session_service to set wants_kids=True on the merged session
+    state regardless of which path (fast-path or LLM) handled the rest of
+    the message's extraction, so occasion/color/style are still picked up
+    normally alongside the kids signal."""
+    lower_text = text.lower().strip()
+
     if any(keyword in lower_text for keyword in KIDS_KEYWORDS):
         return True
 
@@ -135,23 +139,6 @@ def _is_kids_request(lower_text: str) -> bool:
     # "married 2 years") — require "old" or an explicit relation word to
     # confirm it's actually describing a child's age.
     return "old" in lower_text or any(word in lower_text for word in KIDS_RELATION_WORDS)
-
-
-def _match_kids_request() -> FastPathMatch:
-    """Dhaaga has no kids' catalog at all — say so plainly instead of
-    letting adult clothing be shown as if it matched a child's outfit.
-    clarify=True with nothing extracted short-circuits straight to a
-    reply with no search, via the same early-return path off-topic
-    messages use in session_service.handle_turn."""
-    diff = IntentExtractionResult(
-        assistant_reply=(
-            "I'm sorry, Dhaaga currently only carries menswear and womenswear in "
-            "adult sizing — we don't have a kids' catalog yet. I can help you find "
-            "something for yourself or another adult instead, if that's useful!"
-        ),
-        clarify=True,
-    )
-    return FastPathMatch(diff=diff)
 
 
 def _match_cheaper(last_results: list[Product]) -> FastPathMatch | None:

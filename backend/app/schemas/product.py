@@ -25,6 +25,15 @@ class Product(BaseModel):
             "filtering, not primarily for display."
         ),
     )
+    is_kids: bool = Field(
+        default=False,
+        description=(
+            "Detected as a kids/toddler item (category prefix, vendor, or "
+            "tags) — excluded from search by default so it doesn't surface "
+            "in an adult's search, but specifically filtered FOR when a "
+            "shopper's message indicates they're buying for a child."
+        ),
+    )
     image: str
     secondaryImage: Optional[str] = None
     product_url: str

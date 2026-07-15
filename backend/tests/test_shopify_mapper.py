@@ -194,24 +194,28 @@ class TestMapperBasic:
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is None
 
-    def test_skips_kids_apparel_by_title(self):
+    def test_tags_kids_apparel_by_title(self):
         # Real observed case: Gul Ahmed's "Toddler Boy Multi Sweatshirt"
         # and "Junior Boy Clay Printed Sweatshirt" surfaced in a plain
-        # adult "sweatshirt" search — this app has no kids sizing/flow.
+        # adult "sweatshirt" search — kids items are kept (Dhaaga does
+        # carry them) but tagged so search can filter them appropriately
+        # rather than mixing them into an adult's search by default.
         for title in ["Toddler Boy Multi Sweatshirt", "Junior Boy Clay Printed Sweatshirt"]:
             product = {**SAMPLE_SHOPIFY_PRODUCT, "title": title, "product_type": ""}
             result = map_shopify_to_product(product, "brand", "domain.pk")
-            assert result is None, f"Expected {title!r} to be excluded as kids apparel"
+            assert result is not None, f"Expected {title!r} to still be kept, just tagged"
+            assert result.is_kids is True
 
-    def test_skips_kids_apparel_by_category_prefix(self):
+    def test_tags_kids_apparel_by_category_prefix(self):
         # Real observed case: Beechtree's kids line uses its own category
         # prefix ("BTK-East" / "BTK-West") with no kids keyword in the
         # title at all.
         product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "2 Piece Floral Set", "product_type": "BTK-East"}
         result = map_shopify_to_product(product, "brand", "domain.pk")
-        assert result is None
+        assert result is not None
+        assert result.is_kids is True
 
-    def test_skips_kids_apparel_by_shopify_tags(self):
+    def test_tags_kids_apparel_by_shopify_tags(self):
         # Real observed case: Beechtree's "2 PIECE EMBROIDERED SUIT" has no
         # kids keyword in title or product_type at all — only its Shopify
         # tags ("Kids", "Little Girls", "child") reveal it's a kids item.
@@ -222,7 +226,8 @@ class TestMapperBasic:
             "tags": ["1-2Y", "child", "Kid-FUS", "Kids", "Little Girls", "NA-West"],
         }
         result = map_shopify_to_product(product, "brand", "domain.pk")
-        assert result is None
+        assert result is not None
+        assert result.is_kids is True
 
     def test_skips_non_apparel_by_shopify_tags(self):
         # Real observed case: Alkaram's "VELVET DUSK" has a generic title
@@ -248,7 +253,7 @@ class TestMapperBasic:
         assert result is not None
         assert result.shopify_tags == ["Women", "Summer-26", "New In", "Embroidered"]
 
-    def test_skips_kids_apparel_by_vendor(self):
+    def test_tags_kids_apparel_by_vendor(self):
         # Real observed case: Zellbury and Outfitters use `vendor` as a
         # per-product department/age label ("ZELLBURY GIRLS", "Boys
         # Junior") independent of the brand-level department, with no
@@ -260,7 +265,8 @@ class TestMapperBasic:
             "vendor": "ZELLBURY GIRLS",
         }
         result = map_shopify_to_product(product, "brand", "domain.pk")
-        assert result is None
+        assert result is not None
+        assert result.is_kids is True
 
     def test_skips_fully_out_of_stock_product(self):
         # Real observed case: a large fraction of the cached catalog was
@@ -293,6 +299,7 @@ class TestMapperBasic:
         product = {**SAMPLE_SHOPIFY_PRODUCT, "title": "Boyfriend Fit Jeans", "product_type": "Bottoms"}
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is not None
+        assert result.is_kids is False
 
 
 class TestKeywordMatching:

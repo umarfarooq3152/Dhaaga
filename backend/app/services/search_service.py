@@ -146,9 +146,10 @@ def _apply_filters(
     tags: list[str] | None = None,
     max_price: float | None = None,
     min_price: float | None = None,
+    kids: bool = False,
 ) -> list[Product]:
     """Apply structured filters to products.
-    
+
     Args:
         products: Products to filter
         occasion: Filter by occasion (e.g., 'eid', 'wedding')
@@ -157,11 +158,16 @@ def _apply_filters(
         tags: Filter by tags (product must have all tags)
         max_price: Maximum price
         min_price: Minimum price
-        
+        kids: If True, filter TO kids items only (shopping for a child).
+            If False (default), filter kids items OUT — an adult's search
+            shouldn't surface a toddler's outfit, but a shopper who says
+            they're buying for a child should see only kids items, not a
+            mix of both.
+
     Returns:
         Filtered products list
     """
-    filtered = products
+    filtered = [p for p in products if p.is_kids == kids]
 
     if occasion:
         filtered = [p for p in filtered if p.occasion == occasion.lower()]
@@ -207,9 +213,10 @@ class SearchService:
         min_price: float | None = None,
         page: int = 1,
         page_size: int = 20,
+        kids: bool = False,
     ) -> ProductSearchResponse:
         """Search products with keyword scoring and filters.
-        
+
         Args:
             products: Candidate products (from cache)
             query: Free-text search query
@@ -221,7 +228,9 @@ class SearchService:
             min_price: Minimum price
             page: Page number (1-indexed)
             page_size: Results per page
-            
+            kids: If True, search kids items only; if False (default),
+                exclude them from an ordinary adult search.
+
         Returns:
             Paginated ProductSearchResponse with scored results
         """
@@ -237,6 +246,7 @@ class SearchService:
             tags=tags,
             max_price=max_price,
             min_price=min_price,
+            kids=kids,
         )
 
         # Score by keyword matches
@@ -270,21 +280,24 @@ class SearchService:
         brand_slugs: list[str],
         page: int = 1,
         page_size: int = 20,
+        kids: bool = False,
     ) -> ProductSearchResponse:
         """Filter products by brand slugs.
-        
+
         Args:
             products: Candidate products
             brand_slugs: List of brand slugs to include
             page: Page number
             page_size: Results per page
-            
+            kids: If True, kids items only; if False (default), excluded —
+                same reasoning as SearchService.search.
+
         Returns:
             Paginated results filtered by brand
         """
         filtered = [
             p for p in products
-            if any(p.id.startswith(f"{slug}:") for slug in brand_slugs)
+            if p.is_kids == kids and any(p.id.startswith(f"{slug}:") for slug in brand_slugs)
         ]
 
         total = len(filtered)

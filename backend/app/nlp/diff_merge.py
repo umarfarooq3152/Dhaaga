@@ -67,4 +67,5 @@ def merge_session_state(
         excluded=_dedup(current.excluded + diff.excluded),
         brands=current.brands,
         department=current.department,
+        wants_kids=diff.wants_kids if diff.wants_kids is not None else current.wants_kids,
     )

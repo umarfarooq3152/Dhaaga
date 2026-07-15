@@ -47,13 +47,13 @@ NON_APPAREL_KEYWORDS = [
     "heels", "flats", "loafers", "boots", "flip flop", "flip-flop",
 ]
 
-# This app has no kids onboarding/sizing flow at all (Menswear/Womenswear
-# only), so kids items have no correct department to slot into. Real
-# observed case: Gul Ahmed's "Toddler Boy Multi Sweatshirt" and "Junior
-# Boy Clay Printed Sweatshirt" surfaced in a plain adult "sweatshirt"
-# search. Beechtree's kids line uses its own category prefix ("BTK-East"
-# / "BTK-West") with no kids keyword in the title at all, so it needs a
-# separate category-prefix check rather than a title keyword.
+# Identifies kids apparel so it can be tagged (is_kids) rather than shown
+# mixed into ordinary adult searches — real observed case: Gul Ahmed's
+# "Toddler Boy Multi Sweatshirt" and "Junior Boy Clay Printed Sweatshirt"
+# surfaced in a plain adult "sweatshirt" search. Beechtree's kids line
+# uses its own category prefix ("BTK-East" / "BTK-West") with no kids
+# keyword in the title at all, so it needs a separate category-prefix
+# check rather than a title keyword.
 KIDS_KEYWORDS = ["kids", "kid", "boys", "girls", "boy", "girl", "toddler", "infant", "newborn"]
 KIDS_CATEGORY_PREFIXES = ("btk",)
 
@@ -212,9 +212,11 @@ def map_shopify_to_product(
             logger.debug(f"Skipping non-apparel product: {title} ({category})")
             return None
 
-        if _is_kids_apparel(title, category, shopify_tags, vendor):
-            logger.debug(f"Skipping kids apparel (no kids flow supported): {title} ({category})")
-            return None
+        # Kids apparel is kept (not excluded) but tagged — the search layer
+        # filters kids items OUT of ordinary adult searches by default and
+        # filters TO them only when a shopper's message indicates they're
+        # buying for a child (see SearchService / wants_kids).
+        is_kids = _is_kids_apparel(title, category, shopify_tags, vendor)
 
         # Extract price from first available variant
         price = 0.0
@@ -257,6 +259,7 @@ def map_shopify_to_product(
             category=category,
             tags=[],  # Will be filled by keyword_matcher
             shopify_tags=shopify_tags,
+            is_kids=is_kids,
             image=primary_image,
             secondaryImage=secondary_image,
             product_url=product_url,

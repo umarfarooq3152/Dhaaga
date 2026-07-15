@@ -17,6 +17,7 @@ class SessionState(BaseModel):
     excluded: list[str] = Field(default_factory=list)
     brands: list[str] = Field(default_factory=list)  # empty = all active brands
     department: Optional[str] = None  # 'men' | 'women' | 'unisex' — from onboarding
+    wants_kids: bool = False  # shopping for a child — filters TO kids items, not away from them
 
 
 class IntentExtractionResult(BaseModel):
@@ -29,6 +30,7 @@ class IntentExtractionResult(BaseModel):
     size: Optional[str] = None
     urgency_days: Optional[int] = None
     excluded: list[str] = Field(default_factory=list)
+    wants_kids: Optional[bool] = None  # set deterministically in code, not by the LLM — see fast_path_classifier.is_kids_request
     assistant_reply: str = Field(..., description="Generated assistant response")
     clarify: bool = Field(default=False, description="True if clarification needed")
 

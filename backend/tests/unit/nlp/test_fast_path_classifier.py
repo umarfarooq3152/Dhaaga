@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.nlp.fast_path_classifier import classify
+from app.nlp.fast_path_classifier import classify, is_kids_request
 from app.schemas.product import Product
 from app.schemas.session import SessionState
 
@@ -31,54 +31,48 @@ def test_no_match_falls_through_to_none():
     assert classify("something totally unrelated to any pattern", SessionState(), []) is None
 
 
-def test_kids_request_by_age_extracts_nothing_and_clarifies():
-    # Real bug: the LLM didn't reliably follow a "no kids catalog" prompt
-    # instruction, extracting a nonsensical size="kids" and surfacing
-    # adult womenswear as if it matched a toddler's outfit. This must be
-    # a deterministic, code-level guarantee instead.
+def test_is_kids_request_by_age():
+    # Real bug: the LLM didn't reliably recognize "shopping for a child" on
+    # its own, extracting a nonsensical size="kids" and surfacing adult
+    # womenswear as if it matched a toddler's outfit. Detection now happens
+    # deterministically, independent of whichever path (fast-path or LLM)
+    # extracts the rest of the message (occasion/color/style).
     text = "I want to dress up my 2 year old daughter in something pink and traditional"
-    match = classify(text, SessionState(), [])
-    assert match is not None
-    assert match.diff.clarify is True
-    assert match.diff.occasion is None
-    assert match.diff.color_preference is None
-    assert match.diff.style_descriptors == []
-    assert "kids" in match.diff.assistant_reply.lower() or "adult" in match.diff.assistant_reply.lower()
+    assert is_kids_request(text) is True
 
 
-def test_kids_request_by_keyword():
+def test_is_kids_request_by_keyword():
     for text in ["need a toddler outfit for eid", "looking for kids clothes", "something for my newborn"]:
-        match = classify(text, SessionState(), [])
-        assert match is not None, f"expected a kids-request match for {text!r}"
-        assert match.diff.clarify is True
+        assert is_kids_request(text) is True, f"expected a kids-request match for {text!r}"
 
 
-def test_kids_request_survives_dropped_o_in_old():
+def test_is_kids_request_survives_dropped_o_in_old():
     # Real bug: this exact phrasing (a typo, or a voice-transcription
     # artifact — this app now also does real voice search via Whisper)
     # slipped through undetected because the strict "...years old" regex
     # required the literal substring "old", which "ld" doesn't contain.
     text = "I want to dress up my 2 year ld daughter in something pink and traditional"
-    match = classify(text, SessionState(), [])
-    assert match is not None
-    assert match.diff.clarify is True
-    assert match.diff.style_descriptors == []
+    assert is_kids_request(text) is True
 
 
 def test_age_alone_without_relation_word_does_not_trigger_kids_request():
     # "2 years" alone (no "old", no daughter/son/kid/etc.) is too weak a
     # signal on its own — e.g. "shopping here for 2 years" shouldn't be
     # treated as a kids request.
-    match = classify("I've been shopping here for 2 years", SessionState(), [])
-    assert match is None
+    assert is_kids_request("I've been shopping here for 2 years") is False
 
 
 def test_adult_age_does_not_trigger_kids_request():
-    match = classify("something for my 25 year old sister's wedding", SessionState(), [])
-    # Not a kids match — either falls through to None or matches some
-    # other pattern, but must never be treated as a kids request.
-    if match is not None:
-        assert match.diff.clarify is False or match.diff.occasion is not None
+    assert is_kids_request("something for my 25 year old sister's wedding") is False
+
+
+def test_kids_request_does_not_short_circuit_classify():
+    # is_kids_request is layered on top in session_service, not inside
+    # classify() — a kids message with no OTHER fast-path pattern in it
+    # should fall through to LLM extraction like any other message, so
+    # occasion/color/style still get extracted normally.
+    text = "I want to dress up my 2 year old daughter in something pink and traditional"
+    assert classify(text, SessionState(), []) is None
 
 
 def test_cheaper_computes_budget_from_min_price(last_results):

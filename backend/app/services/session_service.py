@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from app.errors import ExternalServiceError
 from app.llm.fallback import FallbackIntentProvider
 from app.nlp.diff_merge import merge_session_state
-from app.nlp.fast_path_classifier import classify
+from app.nlp.fast_path_classifier import classify, is_kids_request
 from app.repositories.brand_repo import BrandRepository
 from app.repositories.chat_repo import ChatRepository
 from app.repositories.events_repo import SessionEventRepository
@@ -39,6 +39,7 @@ def _known_signal_count(state: SessionState) -> int:
         state.budget_max is not None,
         bool(state.color_preference or state.style_descriptors),
         bool(state.size),
+        state.wants_kids,
     ])
 
 
@@ -68,6 +69,8 @@ def _gate_reply(state: SessionState) -> str:
     aren't touched here; the prompt already makes those gate-aware.
     """
     known = []
+    if state.wants_kids:
+        known.append("shopping for a child")
     if state.occasion:
         known.append(f"the {state.occasion} occasion")
     if state.color_preference:
@@ -99,6 +102,7 @@ def _has_any_extracted_field(diff: IntentExtractionResult) -> bool:
         or diff.urgency_days is not None
         or diff.style_descriptors
         or diff.excluded
+        or diff.wants_kids
     )
 
 
@@ -172,6 +176,7 @@ def _search_with_relax(
             max_price=max_price,
             page=1,
             page_size=page_size,
+            kids=state.wants_kids,
         )
 
     occasion, budget, color, size = state.occasion, state.budget_max, state.color_preference, state.size
@@ -273,6 +278,14 @@ class SessionService:
         else:
             diff = await self._extract_intent(text, current_state)
             turn_type = "llm_extraction"
+
+        # Deterministic, code-level check regardless of which path handled
+        # the rest of the extraction — the LLM doesn't reliably recognize
+        # "shopping for a child" on its own (see is_kids_request). Only ever
+        # set True here, never False, so an unrelated later turn in the same
+        # kids-shopping conversation doesn't reset the persisted signal.
+        if is_kids_request(text):
+            diff.wants_kids = True
 
         await self._events_repo.log_event(session_id, f"turn_{turn_type}", device_id)
 
