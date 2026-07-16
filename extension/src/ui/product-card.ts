@@ -68,13 +68,29 @@ export function renderProductCard(
   const price = document.createElement('span');
   price.className = 'product-price';
   price.textContent = formatPrice(product.price, product.currency);
+  const verifiedFacts = document.createElement('span');
+  verifiedFacts.className = 'verified-facts';
+  const factLabels = [
+    ...(product.matchDetails?.colors || []),
+    ...(product.matchDetails?.sizes || []).map((size) => `Size ${size}`),
+    product.matchDetails?.fit ? `${product.matchDetails.fit} fit` : null,
+    product.matchDetails?.occasion || null,
+  ].filter((value): value is string => Boolean(value));
+  verifiedFacts.textContent = factLabels.join(' · ');
+  verifiedFacts.hidden = factLabels.length === 0;
+  const imageNotice = document.createElement('span');
+  imageNotice.className = 'image-color-notice';
+  imageNotice.textContent = product.matchDetails?.imageMatchesColor === false
+    ? 'Requested color is available; preview image may differ.'
+    : '';
+  imageNotice.hidden = product.matchDetails?.imageMatchesColor !== false;
   const reasonLabel = document.createElement('span');
   reasonLabel.className = 'reason-label';
   reasonLabel.textContent = 'Why it matches';
   const reason = document.createElement('span');
   reason.className = 'product-reason';
   reason.textContent = product.reason;
-  body.append(title, price, reasonLabel, reason);
+  body.append(title, price, verifiedFacts, imageNotice, reasonLabel, reason);
 
   card.append(media, body, externalLinkIcon());
   card.addEventListener('click', () => {

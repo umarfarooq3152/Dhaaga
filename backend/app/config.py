@@ -16,15 +16,25 @@ class Settings(BaseSettings):
     # LLM Providers
     gemini_api_key: str
     groq_api_key: str
-    gemini_model: str = "gemini-2.0-flash"
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-5.6-terra"
+    gemini_model: str = "gemini-3.1-flash-lite"
     groq_model: str = "llama-3.1-8b-instant"
-    gemini_timeout_seconds: float = 1.8
-    groq_timeout_seconds: float = 1.8
+    gemini_timeout_seconds: float = 4.0
+    groq_timeout_seconds: float = 6.0
+    gemini_rate_limit_cooldown_seconds: float = 300.0
+    llm_first_intent_enabled: bool = True
+
+    # Cached retrieval followed by bounded live Shopify verification.
+    live_product_validation_enabled: bool = True
+    live_product_timeout_seconds: float = 2.0
+    live_product_concurrency: int = 16
+    live_product_shortlist_size: int = 32
 
     # Browser extension MVP
     extension_allowed_domains: str = "outfitters.com.pk,www.outfitters.com.pk"
     extension_allowed_origins: str = ""
-    extension_catalog_max_products: int = 500
+    extension_catalog_max_products: int = 5000
     extension_catalog_cache_ttl_minutes: int = 15
     extension_request_timeout_seconds: float = 25.0
     extension_rank_candidate_limit: int = 40
@@ -50,8 +60,8 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 6
 
     # Cache settings
-    product_cache_ttl_minutes: int = 30
-    product_cache_refresh_interval_minutes: int = 20
+    product_cache_ttl_minutes: int = 1440
+    product_cache_refresh_interval_minutes: int = 120
     query_cache_ttl_hours: int = 24
 
     # Rate limiting

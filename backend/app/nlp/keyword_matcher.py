@@ -5,6 +5,7 @@ from typing import Any
 
 from app.schemas.product import Product
 from app.nlp.pakistani_events import infer_product_event
+from app.nlp.product_semantics import enrich_product_semantics
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,7 @@ def tag_product(product: Product) -> Product:
     try:
         product.occasion = extract_occasion(product)
         product.tags = extract_tags(product)
+        enrich_product_semantics(product)
         logger.debug(f"Tagged product {product.id}: occasion={product.occasion}, tags={product.tags}")
         return product
     except Exception as e:
@@ -131,6 +133,7 @@ def tag_product(product: Product) -> Product:
         # Return product with defaults if tagging fails
         product.occasion = "casual"
         product.tags = []
+        enrich_product_semantics(product)
         return product
 
 

@@ -80,6 +80,22 @@ let loadingMoreProducts = false;
 let productPaneHasScrolled = false;
 
 const PRODUCT_BATCH_SIZE = 8;
+const MIN_RESPONSE_TRANSITION_MS = 900;
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function greetingReply(query: string): string | null {
+  const normalized = query.toLowerCase().replace(/[^a-z' -]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const greetings = new Set([
+    'hey', 'hi', 'hello', 'hiya', 'salam', 'assalam o alaikum', 'assalam-o-alaikum',
+    'how are you', 'hey how are you', 'hi how are you', 'hello how are you',
+    "what's up", 'what is up', "how's it going", 'how is it going',
+  ]);
+  if (!greetings.has(normalized)) return null;
+  return "I'm doing well — thanks for asking! What are you shopping for today? You can start with a product, color, size, occasion, or budget.";
+}
 
 async function sendMessage(message: WorkerRequest): Promise<WorkerResponse> {
   return chrome.runtime.sendMessage(message) as Promise<WorkerResponse>;
@@ -135,6 +151,7 @@ function intentLabels(intent: ShoppingIntent): string[] {
   }
   if (intent.color) labels.push(intent.color);
   if (intent.size) labels.push(`Size ${intent.size.toUpperCase()}`);
+  if (intent.fit) labels.push(`${intent.fit} fit`);
   if (intent.priceMin !== null && intent.priceMax !== null) {
     labels.push(`Rs. ${intent.priceMin.toLocaleString()}–${intent.priceMax.toLocaleString()}`);
   } else if (intent.priceMax !== null) labels.push(`Under Rs. ${intent.priceMax.toLocaleString()}`);
@@ -224,10 +241,11 @@ function assistantResultSummary(result: SearchResult): string {
     return `I understood the request${understood}, but couldn’t find an exact match for that combination in Outfitters. Tell me which detail you want to change and I’ll keep digging.`;
   }
   const count = result.products.length;
-  const relaxed = result.meta.relaxed
-    ? ' I had to loosen one or more filters; the notice above explains which ones.'
-    : '';
-  return `I found ${count} ${count === 1 ? 'match' : 'matches'} in the current store.${relaxed} What would you like to refine next?`;
+  if (result.meta.relaxed && result.notice) {
+    const explanation = result.notice.split(' Searched the first')[0].trim();
+    return `I found ${count} ${count === 1 ? 'close match' : 'close matches'}. ${explanation} What would you like to refine next?`;
+  }
+  return `I found ${count} ${count === 1 ? 'match' : 'matches'} in the current store. What would you like to refine next?`;
 }
 
 function persistConversation(): void {
@@ -240,13 +258,17 @@ function persistConversation(): void {
   void chrome.storage.local.set({ [CONVERSATION_KEY]: state });
 }
 
-function setSearching(searching: boolean): void {
-  if (searching) searchingLabel.textContent = 'Refining products…';
+function setSearching(
+  searching: boolean,
+  showProductLoading = true,
+  label = 'Understanding your request…',
+): void {
+  if (searching) searchingLabel.textContent = label;
   searchingStrip.hidden = !searching;
   sendButton.disabled = searching;
   micButton.disabled = searching;
   chatInput.disabled = searching;
-  productsLoading.hidden = !searching || currentResult !== null;
+  productsLoading.hidden = !searching || !showProductLoading || currentResult !== null;
   productList.setAttribute('aria-busy', String(searching));
   renderChat(searching);
 }
@@ -289,15 +311,35 @@ async function beginSearch(query: string, addUserMessage = true): Promise<void> 
 
   const requestId = crypto.randomUUID();
   currentRequestId = requestId;
-  setSearching(true);
+  const localGreeting = greetingReply(trimmed);
+  if (localGreeting) {
+    setSearching(true, false, 'Dhaaga is listening…');
+    await wait(MIN_RESPONSE_TRANSITION_MS);
+    if (currentRequestId !== requestId) return;
+    currentRequestId = null;
+    setSearching(false);
+    messages.push(message('assistant', localGreeting));
+    renderChat();
+    persistConversation();
+    chatInput.focus();
+    return;
+  }
+
+  setSearching(true, true, 'Understanding your request…');
+  const nextStage = window.setTimeout(() => {
+    if (currentRequestId === requestId) searchingLabel.textContent = 'Checking the store catalog…';
+  }, 450);
   let response: WorkerResponse;
   try {
-    response = await sendMessage({
-      type: 'SEARCH_PRODUCTS',
-      requestId,
-      query: trimmed,
-      previousIntent: currentResult?.intent || null,
-    });
+    [response] = await Promise.all([
+      sendMessage({
+        type: 'SEARCH_PRODUCTS',
+        requestId,
+        query: trimmed,
+        previousIntent: currentResult?.intent || null,
+      }),
+      wait(MIN_RESPONSE_TRANSITION_MS),
+    ]);
   } catch {
     response = {
       ok: false,
@@ -307,6 +349,8 @@ async function beginSearch(query: string, addUserMessage = true): Promise<void> 
         true,
       ),
     };
+  } finally {
+    window.clearTimeout(nextStage);
   }
   if (currentRequestId !== requestId) return;
   currentRequestId = null;
@@ -315,7 +359,10 @@ async function beginSearch(query: string, addUserMessage = true): Promise<void> 
   if (!response.ok) {
     if (response.error.code !== 'REQUEST_CANCELLED') {
       showInlineError(response.error);
-      messages.push(message('assistant', `${response.error.message} Your previous products are still here, so you can retry or change the request.`));
+      const recovery = currentResult
+        ? 'I kept your previous products visible. Retry, or refine the request.'
+        : 'Retry, or edit the request and search again.';
+      messages.push(message('assistant', `${response.error.message} ${recovery}`));
       renderChat();
       persistConversation();
     }

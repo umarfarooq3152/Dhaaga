@@ -3,7 +3,7 @@
 import pytest
 
 from app.kids_age import extract_child_age_months
-from app.nlp.fast_path_classifier import classify, is_kids_request
+from app.nlp.fast_path_classifier import classify, extract_department, is_kids_request
 from app.schemas.product import Product
 from app.schemas.session import SessionState
 
@@ -30,6 +30,15 @@ def last_results() -> list[Product]:
 
 def test_no_match_falls_through_to_none():
     assert classify("something totally unrelated to any pattern", SessionState(), []) is None
+
+
+@pytest.mark.parametrize("text", ["hey", "hey how are you", "Assalam-o-Alaikum!", "what's up?"])
+def test_greeting_gets_a_friendly_local_reply(text):
+    result = classify(text, SessionState(), [])
+
+    assert result is not None
+    assert result.diff.clarify is True
+    assert "thanks for asking" in result.diff.assistant_reply
 
 
 def test_is_kids_request_by_age():
@@ -125,11 +134,67 @@ def test_color_fast_path_preserves_requested_shade():
     assert match.diff.color_preference == "dark blue"
 
 
+def test_simple_color_and_category_query_avoids_llm_path():
+    match = classify("blue shirt", SessionState(department="women"), [])
+
+    assert match is not None
+    assert match.diff.category == "shirt"
+    assert match.diff.color_preference == "blue"
+    assert match.diff.department is None
+
+
+def test_simple_color_material_category_query_avoids_llm_path():
+    match = classify("black leather jackets", SessionState(department="men"), [])
+
+    assert match is not None
+    assert match.diff.category == "jacket"
+    assert match.diff.color_preference == "black"
+    assert match.diff.style_descriptors == ["leather"]
+
+
+def test_descriptive_color_category_query_still_uses_full_extraction():
+    assert classify("earthy blue silk shirt", SessionState(), []) is None
+
+
 def test_long_message_with_color_word_does_not_fast_path():
     # A longer, more complex request should go to full LLM extraction instead
     # of being misclassified as a simple color-swap.
     text = "something like the red one but for a wedding happening in three days"
     assert classify(text, SessionState(), []) is None
+
+
+def test_unknown_seasonal_word_keeps_full_extraction_but_known_style_is_fast():
+    assert classify("winter jacket black", SessionState(), []) is None
+    match = classify("brown knitted polos", SessionState(), [])
+    assert match is not None
+    assert match.diff.category == "polo"
+    assert match.diff.style_descriptors == ["knitted"]
+
+
+@pytest.mark.parametrize(
+    ("query", "category", "department", "color", "style", "budget", "size"),
+    [
+        ("men hoodies", "hoodie", "men", None, [], None, None),
+        ("women blue linen tops", "top", "women", "blue", ["linen"], None, None),
+        ("black baggy jeans under 8k", "jeans", None, "black", ["baggy"], 8000, None),
+        ("embroidered kurta size medium", "kurta", None, None, ["embroidered"], None, "M"),
+        ("oversized sweatshirts in XXL", "sweatshirt", None, None, ["oversized"], None, "XXL"),
+        ("women co-ord sets below 12000", "co-ord", "women", None, [], 12000, None),
+        ("pink stripes shirt", "shirt", None, "pink", ["striped"], None, None),
+    ],
+)
+def test_structured_product_searches_use_general_fast_path(
+    query, category, department, color, style, budget, size
+):
+    match = classify(query, SessionState(), [])
+
+    assert match is not None
+    assert match.diff.category == category
+    assert match.diff.department == department
+    assert match.diff.color_preference == color
+    assert match.diff.style_descriptors == style
+    assert match.diff.budget_max == budget
+    assert match.diff.size == size
 
 
 def test_different_brand_excludes_dominant_brand(last_results):
@@ -148,6 +213,75 @@ def test_show_more_sets_flag_without_state_mutation():
     match = classify("show more options", SessionState(occasion="eid"), [])
     assert match is not None
     assert match.show_more is True
+
+
+@pytest.mark.parametrize(
+    ("query", "field"),
+    [
+        ("remove occasion", "occasion"),
+        ("any color", "color"),
+        ("ignore the budget", "budget"),
+        ("clear style", "style"),
+        ("without a size", "size"),
+    ],
+)
+def test_individual_filter_removal_is_a_fast_path(query, field):
+    match = classify(query, SessionState(), [])
+
+    assert match is not None
+    assert match.diff.clear_fields == [field]
+
+
+def test_specific_style_can_be_removed_without_clearing_other_styles():
+    match = classify(
+        "without stripes",
+        SessionState(style_descriptors=["striped", "formal"]),
+        [],
+    )
+
+    assert match is not None
+    assert match.diff.remove_styles == ["striped"]
+
+
+def test_without_embellishment_becomes_a_product_exclusion():
+    match = classify("without embellished", SessionState(), [])
+
+    assert match is not None
+    assert match.diff.excluded_styles == ["embellished"]
+    assert "embroidered" in match.diff.remove_styles
+
+
+def test_gym_clothes_promotes_activewear_without_llm():
+    match = classify("show me gym clothes", SessionState(), [])
+
+    assert match is not None
+    assert match.diff.style_descriptors == ["activewear"]
+    assert match.diff.semantic_query == "activewear performance training clothing"
+
+
+def test_without_business_attire_removes_existing_inferred_style_fast():
+    match = classify(
+        "without business attire",
+        SessionState(
+            style_descriptors=["formal", "professional", "business attire"]
+        ),
+        [],
+    )
+
+    assert match is not None
+    assert match.diff.remove_styles == ["business attire"]
+
+
+def test_formal_event_refinement_does_not_call_llm_or_invent_named_event():
+    match = classify(
+        "for a formal event",
+        SessionState(category="shirt", color_preference="pink"),
+        [],
+    )
+
+    assert match is not None
+    assert match.diff.occasion is None
+    assert match.diff.style_descriptors == ["formal"]
     assert match.diff.occasion is None
     assert match.diff.budget_max is None
 
@@ -156,6 +290,20 @@ def test_explicit_womenswear_refinement_is_deterministic():
     match = classify("I need women's clothing", SessionState(department="men"), [])
     assert match is not None
     assert match.diff.department == "women"
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("a kurta for my son", "men"),
+        ("for a toddler boy", "men"),
+        ("a dress for my daughter", "women"),
+        ("for a baby girl", "women"),
+    ],
+)
+def test_child_gender_phrases_ground_the_requested_department(query, expected):
+    assert extract_department(query) == expected
+    assert is_kids_request(query) is True
 
 
 def test_compound_gender_query_falls_through_for_full_extraction():

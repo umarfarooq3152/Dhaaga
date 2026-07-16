@@ -94,8 +94,28 @@ async def test_filters_color_size_and_price_on_the_same_available_variant():
 
     assert [product.id for product in response.products] == ["2"]
     assert response.products[0].price == 2800
-    assert "size M" in response.products[0].reason
+    assert "size m" in response.products[0].reason.lower()
+    assert response.products[0].match_details.colors == ["Black"]
+    assert response.products[0].match_details.sizes == ["M"]
+    assert response.products[0].match_details.image_matches_color is False
+    assert response.meta.mapped_count == 2
+    assert response.meta.exact_count == 1
     provider.rank_candidates.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_requested_color_uses_and_verifies_variant_specific_image():
+    black_variant = variant(11, "Black", "M", 2800)
+    black_variant["featured_image"] = {"src": "https://cdn.example.com/black.jpg"}
+    product = shopify_product(1, "Core Shirt", [black_variant], product_type="SHIRTS")
+    provider = FakeProvider(ExtensionIntent(category="shirt", color="black", size="M"))
+
+    response = await service_for([product], provider).search(
+        "black shirt size M", "https://outfitters.com.pk"
+    )
+
+    assert response.products[0].image_url == "https://cdn.example.com/black.jpg"
+    assert response.products[0].match_details.image_matches_color is True
 
 
 @pytest.mark.asyncio
@@ -110,6 +130,110 @@ async def test_extension_base_blue_excludes_other_blue_shades():
     )
 
     assert [product.id for product in response.products] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_extension_accepts_either_of_two_requested_colors():
+    brown = shopify_product(1, "Knitted Polo", [variant(11, "Brown", "M", 2500)], product_type="Polo")
+    red = shopify_product(2, "Knitted Polo", [variant(21, "Red", "M", 2600)], product_type="Polo")
+    black = shopify_product(3, "Knitted Polo", [variant(31, "Black", "M", 2700)], product_type="Polo")
+    provider = FakeProvider(ExtensionIntent(category="polo", color="brown or red"))
+
+    response = await service_for([black, red, brown], provider).search(
+        "some knitted polos, brown or red", "https://outfitters.com.pk"
+    )
+
+    assert {product.id for product in response.products} == {"1", "2"}
+
+
+@pytest.mark.asyncio
+async def test_extension_formal_filter_excludes_tshirts():
+    shirt = shopify_product(1, "Oxford Button Down Shirt", [variant(11, "White", "M", 5000)], product_type="Shirts")
+    tee = shopify_product(2, "Silk T-Shirt", [variant(21, "White", "M", 7000)], product_type="T-Shirts")
+    provider = FakeProvider(ExtensionIntent(category="t-shirt", descriptive="formal"))
+
+    response = await service_for([shirt, tee], provider).search(
+        "formal t-shirt", "https://outfitters.com.pk"
+    )
+
+    assert response.products == []
+
+
+@pytest.mark.asyncio
+async def test_extension_casual_filter_excludes_formal_products_when_matches_exist():
+    casual = shopify_product(
+        1,
+        "Cotton Weekend Shirt",
+        [variant(11, "Blue", "M", 3000)],
+        product_type="Shirts",
+        tags=["Casual"],
+    )
+    formal = shopify_product(
+        2,
+        "Oxford Formal Shirt",
+        [variant(21, "Blue", "M", 5000)],
+        product_type="Shirts",
+        tags=["Formal"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="shirt", descriptive="casual"))
+
+    response = await service_for([formal, casual], provider).search(
+        "casual shirts", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert response.meta.relaxed is False
+
+
+@pytest.mark.asyncio
+async def test_extension_uses_shared_fabric_and_embellishment_guide():
+    plain = shopify_product(
+        1,
+        "Plain Lawn Kurta",
+        [variant(11, "Green", "M", 3500)],
+        product_type="KURTA",
+        tags=["Lawn", "Everyday"],
+    )
+    festive = shopify_product(
+        2,
+        "Organza Kurta with Gota Handwork",
+        [variant(21, "Green", "M", 8500)],
+        product_type="KURTA",
+        tags=["Organza", "Gota", "Handwork"],
+    )
+    provider = FakeProvider(ExtensionIntent(descriptive="party eastern"))
+
+    response = await service_for([plain, festive], provider).search(
+        "party eastern clothes", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["2"]
+    assert "party" in response.products[0].reason.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("query", "category", "product_type"),
+    [
+        ("belts", "belt", "BELTS"),
+        ("sweater", "sweater", "KNITWEAR"),
+        ("khussa", "shoes", "KHUSSA"),
+    ],
+)
+async def test_outfitters_category_vocabulary_matches_store_labels(query, category, product_type):
+    product = shopify_product(
+        1,
+        "Core Accessory" if category == "belt" else "Crew Neck Knit",
+        [variant(11, "Black", "M", 2500)],
+        product_type=product_type,
+    )
+    provider = FakeProvider(ExtensionIntent(category=category))
+
+    response = await service_for([product], provider).search(
+        query, "https://outfitters.com.pk"
+    )
+
+    assert [item.id for item in response.products] == ["1"]
 
 
 @pytest.mark.asyncio
@@ -131,7 +255,7 @@ async def test_descriptive_search_ranks_reconciled_candidate_ids():
         "something earthy for a casual weekend", "https://www.outfitters.com.pk"
     )
 
-    assert [product.id for product in response.products] == ["1", "2"]
+    assert [product.id for product in response.products] == ["1"]
     assert response.meta.store_domain == "outfitters.com.pk"
     assert response.products[0].score == 9
 
@@ -213,7 +337,7 @@ async def test_descriptive_intent_does_not_relax_hard_constraints():
 
 
 @pytest.mark.asyncio
-async def test_mehndi_intent_uses_event_appropriate_products_without_literal_tag():
+async def test_mehndi_intent_keeps_event_match_first_then_plain_near_match():
     festive = shopify_product(
         1, "Mirror Work Sharara", [variant(11, "Black", "M", 5000)],
         product_type="Sharara", tags=["Embroidered", "Traditional"],
@@ -228,9 +352,11 @@ async def test_mehndi_intent_uses_event_appropriate_products_without_literal_tag
         "cousin's mehndi", "https://outfitters.com.pk"
     )
 
-    assert [product.id for product in response.products] == ["1"]
+    assert [product.id for product in response.products] == ["1", "2"]
+    assert response.meta.exact_count == 1
     assert response.intent.occasion == "mehndi"
     assert "mehndi" in response.products[0].reason.lower()
+    assert response.products[1].match_details.occasion is None
 
 
 @pytest.mark.asyncio
@@ -334,6 +460,32 @@ async def test_extension_can_return_footwear_without_admitting_other_non_apparel
 
 
 @pytest.mark.asyncio
+async def test_formal_shoes_prioritize_formal_footwear_without_collapsing_category():
+    loafers = shopify_product(
+        1,
+        "Chunky Suede Loafers",
+        [variant(11, "Black", "42", 5500)],
+        product_type="CLOSED SHOES",
+        tags=["Men", "Formal"],
+    )
+    slides = shopify_product(
+        2,
+        "Textured Slides",
+        [variant(21, "Black", "42", 2500)],
+        product_type="OPEN SHOES",
+        tags=["Men", "Casual"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="shoes", descriptive="formal"))
+
+    response = await service_for([slides, loafers], provider).search(
+        "formal shoes", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert response.meta.relaxed is False
+
+
+@pytest.mark.asyncio
 async def test_sleeves_matches_outfitters_compact_half_sleeve_tag():
     sleeved = shopify_product(
         1,
@@ -352,6 +504,233 @@ async def test_sleeves_matches_outfitters_compact_half_sleeve_tag():
 
     response = await service_for([sleeveless, sleeved], provider).search(
         "sleeves", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_unavailable_fit_keeps_color_and_returns_truthful_near_match():
+    blue_baggy = shopify_product(
+        1,
+        "Baggy Fit Jeans",
+        [variant(11, "Denim Blue", "32", 4990)],
+        product_type="JEANS",
+        tags=["Men", "Baggy Fit"],
+    )
+    black_straight = shopify_product(
+        2,
+        "Straight Fit Jeans",
+        [variant(21, "Black", "32", 4590)],
+        product_type="JEANS",
+        tags=["Men", "Straight Fit"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="jeans", color="black", fit="baggy"))
+
+    response = await service_for([black_straight, blue_baggy], provider).search(
+        "baggy black jeans preferably", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["2"]
+    assert response.meta.exact_count == 0
+    assert response.meta.relaxed_filters == ["fit"]
+    assert response.products[0].match_details.colors == ["Black"]
+    assert response.products[0].match_details.fit is None
+
+
+@pytest.mark.asyncio
+async def test_exact_preference_tier_leads_color_correct_nearby_products():
+    exact = shopify_product(
+        1, "Baggy Fit Jeans", [variant(11, "Black", "32", 5990)],
+        product_type="JEANS", tags=["Men", "Baggy Fit"],
+    )
+    wrong_fit = shopify_product(
+        2, "Straight Fit Jeans", [variant(21, "Black", "32", 4590)],
+        product_type="JEANS", tags=["Men", "Straight Fit"],
+    )
+    wrong_color = shopify_product(
+        3, "Baggy Fit Jeans", [variant(31, "Blue", "32", 4990)],
+        product_type="JEANS", tags=["Men", "Baggy Fit"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="jeans", color="black", fit="baggy"))
+
+    response = await service_for([wrong_fit, wrong_color, exact], provider).search(
+        "black baggy jeans", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1", "2"]
+    assert response.meta.exact_count == 1
+    assert response.products[0].match_details.fit == "baggy"
+    assert response.products[1].match_details.fit is None
+
+
+@pytest.mark.asyncio
+async def test_unavailable_color_returns_no_wrong_color_fallback():
+    red = shopify_product(
+        1, "Oxford Shirt", [variant(11, "Red", "M", 2990)],
+        product_type="SHIRTS", tags=["Men", "Formal"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="shirt", color="black"))
+
+    response = await service_for([red], provider).search(
+        "black shirt", "https://outfitters.com.pk"
+    )
+
+    assert response.products == []
+    assert response.meta.relaxed is False
+    assert response.meta.relaxed_filters == []
+    assert response.notice is None
+
+
+@pytest.mark.asyncio
+async def test_unavailable_occasion_preserves_size_for_near_match():
+    wrong_size = shopify_product(
+        1, "Festive Shirt", [variant(11, "Blue", "S", 2990)],
+        product_type="SHIRTS", tags=["Embroidered", "Traditional"],
+    )
+    right_size_plain = shopify_product(
+        2, "Basic Shirt", [variant(21, "Blue", "M", 2490)],
+        product_type="SHIRTS", tags=["Basics"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="shirt", size="M", occasion="mehndi"))
+
+    response = await service_for([wrong_size, right_size_plain], provider).search(
+        "shirt size M for mehndi", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["2"]
+    assert response.meta.exact_count == 0
+    assert response.products[0].match_details.sizes == ["M"]
+    assert response.products[0].match_details.occasion is None
+
+
+@pytest.mark.asyncio
+async def test_requested_apparel_family_is_a_hard_constraint():
+    eastern = shopify_product(
+        1,
+        "Embroidered Kurta",
+        [variant(11, "Green", "M", 4990)],
+        product_type="KURTA",
+        tags=["Men", "Eastern", "Embroidered"],
+    )
+    western = shopify_product(
+        2,
+        "Oxford Shirt",
+        [variant(21, "Green", "M", 3990)],
+        product_type="SHIRTS",
+        tags=["Men", "Western", "Formal"],
+    )
+    provider = FakeProvider(ExtensionIntent(descriptive="eastern"))
+
+    response = await service_for([western, eastern], provider).search(
+        "show me eastern wear", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert response.meta.relaxed is False
+
+
+@pytest.mark.asyncio
+async def test_extension_broad_western_wear_spans_multiple_categories():
+    products = [
+        shopify_product(1, "Crew Neck T-Shirt", [variant(11, "Black", "M", 1990)], product_type="T-SHIRTS"),
+        shopify_product(2, "Straight Denim Jeans", [variant(21, "Blue", "M", 3990)], product_type="JEANS"),
+        shopify_product(3, "Cotton Day Dress", [variant(31, "White", "M", 4490)], product_type="DRESSES"),
+        shopify_product(4, "Printed Lawn Kurta", [variant(41, "Green", "M", 3490)], product_type="KURTA"),
+    ]
+    provider = FakeProvider(ExtensionIntent(descriptive="western"))
+
+    response = await service_for(products, provider).search(
+        "show me western wear", "https://outfitters.com.pk"
+    )
+
+    assert {product.id for product in response.products} == {"1", "2", "3"}
+
+
+@pytest.mark.asyncio
+async def test_extension_keeps_exact_occasion_first_then_adds_near_matches():
+    exact = shopify_product(
+        1,
+        "Green Gota Kurta",
+        [variant(11, "Green", "M", 5990)],
+        product_type="KURTA",
+        tags=["Gota", "Festive", "Traditional"],
+    )
+    near = shopify_product(
+        2,
+        "Black Plain Kurta",
+        [variant(21, "Black", "M", 4990)],
+        product_type="KURTA",
+        tags=["Basics"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="kurta", occasion="mehndi"))
+
+    response = await service_for([near, exact], provider).search(
+        "kurtas for mehndi", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1", "2"]
+    assert response.meta.exact_count == 1
+    assert response.meta.relaxed is True
+    assert response.meta.relaxed_filters == ["occasion"]
+    assert response.products[0].match_details.occasion == "mehndi"
+    assert response.products[1].match_details.occasion is None
+    assert "Exact matches are shown first" in response.notice
+
+
+@pytest.mark.asyncio
+async def test_activewear_request_excludes_plain_casual_items():
+    training = shopify_product(
+        1,
+        "Dri Fit Training Tee",
+        [variant(11, "Black", "M", 2990)],
+        product_type="ACTIVEWEAR",
+        tags=["Men", "Training", "Dri Fit"],
+    )
+    casual = shopify_product(
+        2,
+        "Basic Cotton Tee",
+        [variant(21, "Black", "M", 1990)],
+        product_type="T-SHIRTS",
+        tags=["Men", "Casual", "Cotton"],
+    )
+    provider = FakeProvider(ExtensionIntent(descriptive="activewear"))
+
+    response = await service_for([casual, training], provider).search(
+        "activewear for training", "https://outfitters.com.pk"
+    )
+
+    assert [product.id for product in response.products] == ["1"]
+    assert response.meta.relaxed is False
+
+
+@pytest.mark.asyncio
+async def test_requested_audience_excludes_unknown_and_wrong_departments():
+    mens = shopify_product(
+        1,
+        "Men's Oxford Shirt",
+        [variant(11, "White", "M", 3990)],
+        product_type="SHIRTS",
+        tags=["Men", "Formal"],
+    )
+    womens = shopify_product(
+        2,
+        "Women's Oxford Shirt",
+        [variant(21, "White", "M", 3990)],
+        product_type="SHIRTS",
+        tags=["Women", "Formal"],
+    )
+    unknown = shopify_product(
+        3,
+        "Oxford Shirt",
+        [variant(31, "White", "M", 3990)],
+        product_type="SHIRTS",
+        tags=["Formal"],
+    )
+    provider = FakeProvider(ExtensionIntent(category="shirt", audience="men"))
+
+    response = await service_for([unknown, womens, mens], provider).search(
+        "men's shirts", "https://outfitters.com.pk"
     )
 
     assert [product.id for product in response.products] == ["1"]

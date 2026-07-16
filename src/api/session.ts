@@ -6,7 +6,7 @@ export interface SessionMessageResult {
   sessionId: string;
   reply: string;
   sessionState: SessionState;
-  filters: { style: string; occasion: string; budget: string; color?: string; size?: string; age?: string };
+  filters: { category?: string; style: string; styles?: string[]; occasion: string; budget: string; color?: string; size?: string; age?: string };
   products: Product[];
   total: number;
   turnType: 'fast_path' | 'llm_extraction';

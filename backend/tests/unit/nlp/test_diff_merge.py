@@ -41,6 +41,23 @@ def test_excluded_accumulates():
     assert result.excluded == ["limelight", "zellbury"]
 
 
+def test_negative_style_evidence_persists_and_positive_request_cancels_it():
+    current = SessionState(excluded_styles=["embellished"])
+    kept = merge_session_state(
+        current,
+        IntentExtractionResult(assistant_reply="ok", color_preference="green"),
+    )
+    restored = merge_session_state(
+        kept,
+        IntentExtractionResult(
+            assistant_reply="ok", style_descriptors=["embellished"]
+        ),
+    )
+
+    assert kept.excluded_styles == ["embellished"]
+    assert restored.excluded_styles == []
+
+
 def test_color_preference_overwrites_not_accumulates():
     current = SessionState(color_preference="red")
     diff = IntentExtractionResult(color_preference="blue", assistant_reply="ok")
@@ -60,6 +77,43 @@ def test_budget_max_kept_when_diff_has_none():
     diff = IntentExtractionResult(assistant_reply="ok")
     result = merge_session_state(current, diff)
     assert result.budget_max == 50000
+
+
+def test_explicit_clear_fields_remove_only_requested_constraints():
+    current = SessionState(
+        occasion="eid", category="shirt", color_preference="pink",
+        budget_max=8000, style_descriptors=["striped", "formal"], size="M",
+    )
+
+    result = merge_session_state(
+        current,
+        IntentExtractionResult(
+            clear_fields=["occasion", "style", "budget"], assistant_reply="ok"
+        ),
+    )
+
+    assert result.occasion is None
+    assert result.style_descriptors == []
+    assert result.budget_max is None
+    assert result.category == "shirt"
+    assert result.color_preference == "pink"
+    assert result.size == "M"
+
+
+def test_specific_style_removal_keeps_other_style_constraints():
+    current = SessionState(
+        category="shirt", color_preference="pink",
+        style_descriptors=["striped", "formal"],
+    )
+
+    result = merge_session_state(
+        current,
+        IntentExtractionResult(remove_styles=["striped"], assistant_reply="ok"),
+    )
+
+    assert result.category == "shirt"
+    assert result.color_preference == "pink"
+    assert result.style_descriptors == ["formal"]
 
 
 def test_topic_change_resets_deadline_but_keeps_size_and_budget():
@@ -165,3 +219,45 @@ def test_child_age_overwrites_and_then_persists():
 
     persisted = merge_session_state(changed, IntentExtractionResult(assistant_reply="ok"))
     assert persisted.child_age_months == 36
+
+
+def test_semantic_query_and_constraint_roles_persist_across_refinements():
+    first = merge_session_state(
+        SessionState(),
+        IntentExtractionResult(
+            semantic_query="women's festive mehndi outfit",
+            hard_constraints=["department", "occasion"],
+            soft_preferences=["color_preference"],
+            assistant_reply="ok",
+        ),
+    )
+    refined = merge_session_state(
+        first,
+        IntentExtractionResult(
+            semantic_query="women's green festive mehndi outfit",
+            hard_constraints=["color_preference"],
+            soft_preferences=["occasion", "style_descriptors"],
+            assistant_reply="ok",
+        ),
+    )
+
+    assert refined.semantic_query == "women's green festive mehndi outfit"
+    assert refined.hard_constraints == [
+        "department", "occasion", "color_preference"
+    ]
+    assert refined.soft_preferences == ["style_descriptors"]
+
+
+def test_clearing_a_field_also_clears_its_constraint_role():
+    current = SessionState(
+        color_preference="blue",
+        hard_constraints=["color_preference", "department"],
+        soft_preferences=["occasion"],
+    )
+    result = merge_session_state(
+        current,
+        IntentExtractionResult(clear_fields=["color"], assistant_reply="ok"),
+    )
+
+    assert result.color_preference is None
+    assert result.hard_constraints == ["department"]

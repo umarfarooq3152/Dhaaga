@@ -135,10 +135,10 @@ test('appends more product cards as the products pane is scrolled', async () => 
         dhaagaConversation: {
           messages: [{ id: 'welcome', role: 'assistant', text: 'Welcome' }],
           currentResult: {
-            intent: { category: 'polo', color: null, size: null, priceMax: null, priceMin: null, descriptive: null },
+            intent: { category: 'polo', color: null, size: null, fit: null, priceMax: null, priceMin: null, descriptive: null },
             products: storedProducts,
             notice: null,
-            meta: { storeDomain: 'outfitters.com.pk', fetchedCount: 500, catalogCapped: true, relaxed: false, relaxedFilters: [], durationMs: 100 },
+            meta: { storeDomain: 'outfitters.com.pk', fetchedCount: 500, mappedCount: 480, exactCount: storedProducts.length, catalogCapped: true, relaxed: false, relaxedFilters: [], durationMs: 100 },
           },
           lastQuery: 'polos',
           updatedAt: Date.now(),

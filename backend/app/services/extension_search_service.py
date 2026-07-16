@@ -13,6 +13,7 @@ from app.errors import ExternalServiceError
 from app.schemas.extension import (
     CatalogRanking,
     ExtensionIntent,
+    ExtensionMatchDetails,
     ExtensionProductResult,
     ExtensionSearchMeta,
     ExtensionSearchResponse,
@@ -22,6 +23,7 @@ from app.nlp.pakistani_events import event_match_score
 from app.schemas.product import Product
 from app.shopify.mapper import map_shopify_to_product
 from app.nlp.colors import colors_match, extract_color
+from app.nlp.apparel_classification import extract_classification_request, matches_classification
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +90,70 @@ SIZE_ALIASES = {
 RANKING_PROMPT_CANDIDATE_LIMIT = 24
 
 CATEGORY_ALIASES = {
-    "shoes": ("shoe", "footwear", "sneaker", "sandal", "slide", "loafer", "heel", "flat"),
+    "activewear": (
+        "activewear", "sportswear", "athleisure", "performance", "training",
+        "dri fit", "moisture wicking", "compression", "sports hijab",
+        "sports abaya", "sports bra", "bike short", "yoga pant", "track pant",
+        "jogger", "windbreaker", "running shoe", "trainer",
+    ),
+    "swimwear": ("swimwear", "swimsuit", "bathing suit"),
+    "shoes": (
+        "shoe", "footwear", "sneaker", "sandal", "slide", "loafer", "heel",
+        "flat", "khussa", "trainer", "boot", "dress shoe", "oxford", "derby", "pump",
+    ),
     "pants": ("pant", "trouser"),
     "polo": ("polo",),
     "tank top": ("tank top", "camisole"),
     "t-shirt": ("t shirt", "tee"),
+    "sweater": ("sweater", "knitwear", "pullover", "jumper"),
+    "jacket": ("jacket", "outerwear", "bomber", "puffer", "windbreaker"),
+    "belt": ("belt",),
+    "shalwar kameez": ("shalwar kameez", "salwar kameez", "eastern suit"),
+    "shirt dress": ("shirt dress",),
+    "wrap dress": ("wrap dress",),
+    "cocktail dress": ("cocktail dress",),
+    "slip dress": ("slip dress",),
+    "maxi": ("maxi", "maxi dress"),
+    "gown": ("gown", "long dress"),
+    "blouse": ("blouse",),
+    "crop top": ("crop top",),
+    "peplum top": ("peplum", "peplum top"),
+    "tunic": ("tunic",),
+    "kurti": ("kurti", "short kurta"),
+    "kameez": ("kameez",),
+    "suit": ("suit", "2 piece", "3 piece", "two piece", "three piece"),
+    "palazzo": ("palazzo",),
+    "cigarette pants": ("cigarette pant", "cigarette trouser"),
+    "shalwar": ("shalwar", "salwar"),
+    "gharara": ("gharara",),
+    "sharara": ("sharara",),
+    "leggings": ("legging", "tights"),
+    "blazer": ("blazer", "suit jacket"),
+    "waistcoat": ("waistcoat", "waist coat"),
+    "shrug": ("shrug",),
+    "cape": ("cape",),
+    "cardigan": ("cardigan",),
+    "sherwani": ("sherwani",),
+    "achkan": ("achkan",),
+    "windbreaker": ("windbreaker", "training jacket"),
+    "sports bra": ("sports bra",),
+    "joggers": ("jogger", "track pant"),
+    "jumpsuit": ("jumpsuit",),
+}
+
+FIT_ALIASES = {
+    "wide leg": ("wide leg", "wideleg"),
+    "boot cut": ("boot cut", "bootcut"),
+    "straight": ("straight",),
+    "skinny": ("skinny",),
+    "slim": ("slim",),
+    "baggy": ("baggy",),
+    "relaxed": ("relaxed",),
+    "flared": ("flared", "flare"),
+    "cropped": ("cropped",),
+    "oversized": ("oversized", "over sized"),
+    "loose": ("loose",),
+    "regular": ("regular fit",),
 }
 
 
@@ -228,6 +289,17 @@ def _supports_child_age(candidate: Candidate, child_age_months: int | None) -> b
     return any(start <= child_age_months <= end for start, end in candidate.age_ranges_months)
 
 
+def _matches_fit(candidate: Candidate, fit: str | None) -> bool:
+    if not fit:
+        return True
+    haystack = _normalize_words(candidate.searchable_text)
+    aliases = FIT_ALIASES.get(_normalize_words(fit), (_normalize_words(fit),))
+    return any(
+        re.search(rf"\b{re.escape(_normalize_words(alias))}\b", haystack)
+        for alias in aliases
+    )
+
+
 def _matching_variants(candidate: Candidate, intent: ExtensionIntent) -> list[VariantFact]:
     requested_size = _normalize_size(intent.size or "")
     product_text = _normalize_words(candidate.searchable_text)
@@ -239,13 +311,20 @@ def _matching_variants(candidate: Candidate, intent: ExtensionIntent) -> list[Va
             continue
 
         if intent.color:
+            requested_colors = [
+                color.strip()
+                for color in re.split(r"\s+or\s+", intent.color, flags=re.IGNORECASE)
+                if color.strip()
+            ]
             color_value = _option_value(variant, "color")
             if candidate.color_is_variant_option:
-                if not color_value or not colors_match(intent.color, color_value):
+                if not color_value or not any(
+                    colors_match(requested, color_value) for requested in requested_colors
+                ):
                     continue
             elif not (
                 (text_color := extract_color(product_text))
-                and colors_match(intent.color, text_color)
+                and any(colors_match(requested, text_color) for requested in requested_colors)
             ):
                 continue
 
@@ -260,12 +339,186 @@ def _matching_variants(candidate: Candidate, intent: ExtensionIntent) -> list[Va
     return matches
 
 
+def _requested_colors(intent: ExtensionIntent) -> list[str]:
+    return [
+        color.strip()
+        for color in re.split(r"\s+or\s+", intent.color or "", flags=re.IGNORECASE)
+        if color.strip()
+    ]
+
+
+def _variants_matching_color(
+    candidate: Candidate,
+    variants: list[VariantFact],
+    intent: ExtensionIntent,
+) -> list[VariantFact]:
+    requested_colors = _requested_colors(intent)
+    if not requested_colors:
+        return variants
+    if candidate.color_is_variant_option:
+        return [
+            variant
+            for variant in variants
+            if (color_value := _option_value(variant, "color"))
+            and any(colors_match(requested, color_value) for requested in requested_colors)
+        ]
+    product_color = extract_color(_normalize_words(candidate.searchable_text))
+    if product_color and any(colors_match(requested, product_color) for requested in requested_colors):
+        return variants
+    return []
+
+
+def _preference_fields(intent: ExtensionIntent) -> tuple[str, ...]:
+    fields: list[str] = []
+    if intent.fit:
+        fields.append("fit")
+    if intent.color:
+        fields.append("color")
+    if intent.occasion:
+        fields.append("occasion")
+    classification = extract_classification_request(intent.descriptive or "")
+    if classification.formality or classification.activewear:
+        fields.append("formality")
+    if classification.tradition:
+        fields.append("family")
+    return tuple(fields)
+
+
+def _category_contradicts_requested_style(intent: ExtensionIntent) -> bool:
+    request = extract_classification_request(intent.descriptive or "")
+    category = _normalize_words(intent.category or "")
+    inherently_casual = {"t shirt", "jeans", "shorts", "sneakers"}
+    inherently_formal = {"sherwani", "gharara", "sharara", "bridal gown"}
+    if request.formality in {"formal", "party", "bridal"} and category in inherently_casual:
+        return True
+    if request.formality == "casual" and category in inherently_formal:
+        return True
+    return False
+
+
+def _requested_family(intent: ExtensionIntent) -> str | None:
+    descriptive = (intent.descriptive or "").lower()
+    return next(
+        (value for value in ("eastern", "western") if value in descriptive),
+        None,
+    )
+
+
+def _matched_preferences(
+    candidate: Candidate,
+    variants: list[VariantFact],
+    intent: ExtensionIntent,
+) -> set[str]:
+    matched: set[str] = set()
+    if intent.fit and _matches_fit(candidate, intent.fit):
+        matched.add("fit")
+    if intent.color and _variants_matching_color(candidate, variants, intent):
+        matched.add("color")
+    if intent.occasion and _candidate_event_score(candidate, intent.occasion) > 0:
+        matched.add("occasion")
+    classification = extract_classification_request(intent.descriptive or "")
+    if classification.formality or classification.activewear:
+        classification_match = matches_classification(
+            candidate.searchable_text,
+            intent.descriptive,
+        )
+        formal_footwear = bool(
+            classification.formality == "formal"
+            and _matches_category(candidate, "shoes")
+            and re.search(
+                r"\b(?:loafers?|pumps?|flats?|heels?|oxfords?|derbys?)\b",
+                _normalize_words(candidate.searchable_text),
+            )
+        )
+        if classification_match or formal_footwear:
+            matched.add("formality")
+    if classification.tradition and matches_classification(
+        candidate.searchable_text, intent.descriptive
+    ):
+        matched.add("family")
+    return matched
+
+
+def _preference_score(
+    candidate: Candidate,
+    variants: list[VariantFact],
+    intent: ExtensionIntent,
+    query: str,
+) -> float:
+    matched = _matched_preferences(candidate, variants, intent)
+    preference_wording = bool(
+        re.search(r"\b(?:preferably|ideally|if possible|would be nice|crapper)\b", query, re.IGNORECASE)
+    )
+    score = 0.0
+    if "fit" in matched:
+        score += 4.0
+    if "color" in matched:
+        score += 1.5 if preference_wording and intent.fit else 3.0
+    if "occasion" in matched:
+        score += 2.5 + _candidate_event_score(candidate, intent.occasion or "") * 2.0
+    if "formality" in matched:
+        score += 3.5
+        if extract_classification_request(intent.descriptive or "").formality == "formal":
+            searchable = _normalize_words(candidate.searchable_text)
+            if re.search(r"\b(?:loafers?|oxfords?|derbys?|dress shoes?)\b", searchable):
+                score += 2.0
+            elif re.search(r"\b(?:pumps?|heels?)\b", searchable):
+                score += 1.5
+            elif re.search(r"\bflats?\b", searchable):
+                score += 1.0
+    if "family" in matched:
+        score += 3.5
+    return score
+
+
+def _candidate_reason(
+    candidate: Candidate,
+    variants: list[VariantFact],
+    intent: ExtensionIntent,
+) -> str:
+    matched = _matched_preferences(candidate, variants, intent)
+    truthful_intent = intent.model_copy(update={
+        "color": intent.color if "color" in matched else None,
+        "fit": intent.fit if "fit" in matched else None,
+        "occasion": intent.occasion if "occasion" in matched else None,
+    })
+    reason = _structured_reason(truthful_intent)
+    if "formality" in matched:
+        request = extract_classification_request(intent.descriptive or "")
+        label = "activewear" if request.activewear else request.formality
+        if label:
+            return f"{label.title()} styling; {reason[0].lower()}{reason[1:]}"
+    return reason
+
+
+def _freeform_ranking_description(intent: ExtensionIntent) -> str:
+    """Keep AI ranking for subjective language, not verified structure.
+
+    Deterministic code already handles fit, event, formality, tradition, color,
+    size, and price. Letting the model re-rank those fields caused factual
+    inversions such as formal loafers being placed below casual slides.
+    """
+    text = intent.descriptive or ""
+    structural_phrases = [
+        intent.fit,
+        intent.occasion,
+        "semi-formal", "semi formal", "formal", "casual", "party", "bridal",
+        "activewear", "sportswear", "eastern", "western", "fusion",
+    ]
+    for phrase in structural_phrases:
+        if phrase:
+            text = re.sub(rf"\b{re.escape(phrase)}\b", " ", text, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _structured_reason(intent: ExtensionIntent) -> str:
     facts: list[str] = []
     if intent.color:
-        facts.append(f"{intent.color.title()} option")
+        facts.append(f"{intent.color.title().replace(' Or ', ' or ')} option")
     if intent.size:
         facts.append(f"size {intent.size.upper()}")
+    if intent.fit:
+        facts.append(f"{intent.fit} fit")
     if intent.price_max is not None:
         facts.append("within your budget")
     if intent.price_min is not None and intent.price_max is None:
@@ -282,18 +535,71 @@ def _structured_reason(intent: ExtensionIntent) -> str:
         return "Matches the details in your request."
     if len(facts) == 1:
         return facts[0][0].upper() + facts[0][1:] + "."
+    if len(facts) == 2:
+        sentence = f"{facts[0]} and {facts[1]}"
+        return sentence[0].upper() + sentence[1:] + "."
     prefix = ", ".join(facts[:-1])
     return prefix[0].upper() + prefix[1:] + f", and {facts[-1]}."
 
 
-def _result_image(candidate: Candidate, variants: list[VariantFact]) -> str:
-    return next((variant.image_url for variant in variants if variant.image_url), candidate.image_url)
+def _result_image(
+    candidate: Candidate,
+    variants: list[VariantFact],
+    intent: ExtensionIntent,
+) -> tuple[str, bool | None]:
+    variant_image = next((variant.image_url for variant in variants if variant.image_url), None)
+    if intent.color:
+        # A requested color can be verified as available while Shopify still
+        # provides only a generic/primary product image. Preserve the valid
+        # product but tell the client when the preview is not color-verified.
+        return variant_image or candidate.image_url, variant_image is not None
+    return variant_image or candidate.image_url, None
+
+
+def _build_product_result(
+    candidate: Candidate,
+    matching_variants: list[VariantFact],
+    intent: ExtensionIntent,
+    *,
+    score: float,
+    reason: str,
+) -> ExtensionProductResult:
+    image_url, image_matches_color = _result_image(candidate, matching_variants, intent)
+    colors = sorted({
+        value
+        for variant in matching_variants
+        if (value := _option_value(variant, "color"))
+    })
+    sizes = sorted({
+        value
+        for variant in matching_variants
+        if (value := _option_value(variant, "size"))
+    })
+    return ExtensionProductResult(
+        id=candidate.id,
+        title=candidate.title,
+        price=min(variant.price for variant in matching_variants),
+        imageUrl=image_url,
+        productUrl=candidate.product_url,
+        score=score,
+        reason=reason,
+        matchDetails=ExtensionMatchDetails(
+            colors=colors if intent.color else [],
+            sizes=sizes if intent.size else [],
+            fit=intent.fit if intent.fit else None,
+            occasion=intent.occasion if intent.occasion else None,
+            audience=candidate.department if intent.audience else None,
+            imageMatchesColor=image_matches_color,
+        ),
+    )
 
 
 def _metadata_score(candidate: Candidate, intent: ExtensionIntent) -> float:
     score = 0.0
     if intent.category and _matches_category(candidate, intent.category):
         score += 5.0
+    if intent.fit and _matches_fit(candidate, intent.fit):
+        score += 3.0
     if intent.occasion:
         score += _candidate_event_score(candidate, intent.occasion) * 5.0
     for term in _normalize_words(intent.descriptive or "").split():
@@ -382,33 +688,129 @@ class ExtensionSearchService:
             if (candidate := _candidate_from_shopify(raw, domain)) is not None
         ]
 
-        strict: list[tuple[Candidate, list[VariantFact]]] = []
-        for candidate in candidates:
-            if candidate.is_kids != (intent.wants_kids is True):
-                continue
-            if not _supports_child_age(candidate, intent.child_age_months):
-                continue
-            if intent.audience and candidate.department not in {intent.audience, "unisex"}:
-                continue
-            if not _matches_category(candidate, intent.category):
-                continue
-            if intent.occasion and _candidate_event_score(candidate, intent.occasion) <= 0:
-                continue
-            matching = _matching_variants(candidate, intent)
-            if matching:
-                strict.append((candidate, matching))
+        # Stable identity and variant facts remain exact. Occasion and fit are
+        # recommendation signals: exact products lead, then closely related
+        # products fill the remaining result slots without making false claims.
+        classification_request = extract_classification_request(intent.descriptive or "")
 
+        def collect_hard_matches(
+            search_intent: ExtensionIntent,
+            *,
+            require_occasion: bool = True,
+            require_fit: bool = True,
+        ):
+            matches: list[tuple[Candidate, list[VariantFact]]] = []
+            for candidate in candidates:
+                if candidate.is_kids != (search_intent.wants_kids is True):
+                    continue
+                if not _supports_child_age(candidate, search_intent.child_age_months):
+                    continue
+                if search_intent.audience and candidate.department not in {search_intent.audience, "unisex"}:
+                    continue
+                if not _matches_category(candidate, search_intent.category):
+                    continue
+                if require_fit and search_intent.fit and not _matches_fit(candidate, search_intent.fit):
+                    continue
+                if (
+                    require_occasion
+                    and
+                    search_intent.occasion
+                    and _candidate_event_score(candidate, search_intent.occasion) <= 0
+                ):
+                    continue
+                if (
+                    (
+                        classification_request.formality
+                        or classification_request.tradition
+                        or classification_request.activewear
+                    )
+                    and not matches_classification(
+                        candidate.searchable_text,
+                        search_intent.descriptive,
+                    )
+                ):
+                    continue
+                matching = _matching_variants(candidate, search_intent)
+                if matching:
+                    matches.append((candidate, matching))
+            return matches
+
+        hard_matches = collect_hard_matches(intent)
+        if _category_contradicts_requested_style(intent):
+            hard_matches = []
+        exact_count = len(hard_matches)
+        selected = list(hard_matches)
+        selected_ids = {candidate.id for candidate, _ in selected}
+        match_tier = {candidate.id: 0 for candidate, _ in selected}
+        effective_intents = {candidate.id: intent for candidate, _ in selected}
         relaxed = False
         relaxed_filters: list[str] = []
-        selected = strict
 
-        selected.sort(key=lambda item: (-_metadata_score(item[0], intent), min(v.price for v in item[1])))
+        def add_near_matches(
+            matches: list[tuple[Candidate, list[VariantFact]]],
+            tier: int,
+        ) -> int:
+            added = 0
+            for candidate, variants in matches:
+                if candidate.id in selected_ids:
+                    continue
+                updates = {}
+                if (
+                    intent.occasion
+                    and _candidate_event_score(candidate, intent.occasion) <= 0
+                ):
+                    updates["occasion"] = None
+                if intent.fit and not _matches_fit(candidate, intent.fit):
+                    updates["fit"] = None
+                selected.append((candidate, variants))
+                selected_ids.add(candidate.id)
+                match_tier[candidate.id] = tier
+                effective_intents[candidate.id] = intent.model_copy(update=updates)
+                added += 1
+                if len(selected) >= self._result_limit:
+                    break
+            return added
+
+        if len(selected) < self._result_limit and intent.occasion:
+            added = add_near_matches(
+                collect_hard_matches(intent, require_occasion=False),
+                tier=1,
+            )
+            if added:
+                relaxed = True
+                relaxed_filters.append("occasion")
+
+        if len(selected) < self._result_limit and intent.fit:
+            added = add_near_matches(
+                collect_hard_matches(
+                    intent,
+                    require_occasion=False,
+                    require_fit=False,
+                ),
+                tier=2,
+            )
+            if added:
+                relaxed = True
+                relaxed_filters.append("fit")
+
+        logger.info(
+            "Extension eligibility: domain=%s fetched=%d mapped=%d exact=%d",
+            domain,
+            len(catalog.products),
+            len(candidates),
+            len(selected),
+        )
+
+        selected.sort(key=lambda item: (
+            match_tier[item[0].id],
+            -_preference_score(item[0], item[1], intent, query),
+            -_metadata_score(item[0], intent),
+            min(v.price for v in item[1]),
+        ))
         selected = selected[: self._rank_candidate_limit]
 
         results: list[ExtensionProductResult]
-        ranking_description = " ".join(
-            value for value in (intent.descriptive, intent.occasion) if value
-        )
+        ranking_description = _freeform_ranking_description(intent)
         if ranking_description and selected:
             ranking_selected = selected[:RANKING_PROMPT_CANDIDATE_LIMIT]
             ranking_input = [
@@ -416,9 +818,14 @@ class ExtensionSearchService:
                     "id": candidate.id,
                     "title": candidate.title[:90],
                     "product_type": candidate.product_type[:45],
-                    "tags": [tag[:36] for tag in candidate.tags[:6]],
+                    "tags": [tag[:36] for tag in candidate.tags[:10]],
+                    "colors": sorted({
+                        color
+                        for variant in matching_variants
+                        if (color := _option_value(variant, "color"))
+                    })[:8],
                 }
-                for candidate, _ in ranking_selected
+                for candidate, matching_variants in ranking_selected
             ]
             try:
                 rankings = await self._provider.rank_candidates(ranking_description, ranking_input)
@@ -431,14 +838,16 @@ class ExtensionSearchService:
             by_id = {ranking.id: ranking for ranking in rankings}
             if by_id:
                 ranked_selected = [item for item in ranking_selected if item[0].id in by_id]
-                ranked_selected.sort(key=lambda item: by_id[item[0].id].score, reverse=True)
+                ranked_selected.sort(key=lambda item: (
+                    match_tier[item[0].id],
+                    -_preference_score(item[0], item[1], intent, query),
+                    -by_id[item[0].id].score,
+                ))
                 ranked_results = [
-                    ExtensionProductResult(
-                        id=candidate.id,
-                        title=candidate.title,
-                        price=min(variant.price for variant in matching_variants),
-                        imageUrl=_result_image(candidate, matching_variants),
-                        productUrl=candidate.product_url,
+                    _build_product_result(
+                        candidate,
+                        matching_variants,
+                        effective_intents[candidate.id],
                         score=by_id[candidate.id].score,
                         reason=by_id[candidate.id].reason,
                     )
@@ -446,14 +855,12 @@ class ExtensionSearchService:
                 ]
                 ranked_ids = {candidate.id for candidate, _ in ranked_selected}
                 fallback_results = [
-                    ExtensionProductResult(
-                        id=candidate.id,
-                        title=candidate.title,
-                        price=min(variant.price for variant in matching_variants),
-                        imageUrl=_result_image(candidate, matching_variants),
-                        productUrl=candidate.product_url,
+                    _build_product_result(
+                        candidate,
+                        matching_variants,
+                        effective_intents[candidate.id],
                         score=min(10, max(1, _metadata_score(candidate, intent))),
-                        reason=_structured_reason(intent),
+                        reason=_candidate_reason(candidate, matching_variants, intent),
                     )
                     for candidate, matching_variants in selected
                     if candidate.id not in ranked_ids
@@ -461,34 +868,31 @@ class ExtensionSearchService:
                 results = (ranked_results + fallback_results)[: self._result_limit]
             else:
                 results = [
-                    ExtensionProductResult(
-                        id=candidate.id,
-                        title=candidate.title,
-                        price=min(variant.price for variant in matching_variants),
-                        imageUrl=_result_image(candidate, matching_variants),
-                        productUrl=candidate.product_url,
+                    _build_product_result(
+                        candidate,
+                        matching_variants,
+                        effective_intents[candidate.id],
                         score=min(10, max(1, _metadata_score(candidate, intent))),
-                        reason=_structured_reason(intent),
+                        reason=_candidate_reason(candidate, matching_variants, intent),
                     )
                     for candidate, matching_variants in selected[: self._result_limit]
                 ]
         else:
             results = [
-                ExtensionProductResult(
-                    id=candidate.id,
-                    title=candidate.title,
-                    price=min(variant.price for variant in matching_variants),
-                    imageUrl=_result_image(candidate, matching_variants),
-                    productUrl=candidate.product_url,
+                _build_product_result(
+                    candidate,
+                    matching_variants,
+                    effective_intents[candidate.id],
                     score=10,
-                    reason=_structured_reason(intent),
+                    reason=_candidate_reason(candidate, matching_variants, intent),
                 )
                 for candidate, matching_variants in selected[: self._result_limit]
             ]
 
-        notice = None
-        if relaxed:
-            notice = "No exact matches for every filter. Showing the closest picks instead."
+        notice = (
+            "Exact matches are shown first, followed by the closest relevant alternatives."
+            if relaxed else None
+        )
         if catalog.capped:
             partial = f"Searched the first {len(catalog.products)} products; results may be partial."
             notice = f"{notice} {partial}" if notice else partial
@@ -500,6 +904,8 @@ class ExtensionSearchService:
             meta=ExtensionSearchMeta(
                 storeDomain=domain,
                 fetchedCount=len(catalog.products),
+                mappedCount=len(candidates),
+                exactCount=exact_count,
                 catalogCapped=catalog.capped,
                 relaxed=relaxed,
                 relaxedFilters=relaxed_filters,

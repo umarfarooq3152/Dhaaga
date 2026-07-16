@@ -18,6 +18,7 @@ def _product(
     price: float,
     is_kids: bool = False,
     sizes: list[str] | None = None,
+    department: str | None = None,
 ) -> Product:
     return Product(
         id=f"{brand}:{external_id}",
@@ -31,6 +32,7 @@ def _product(
         tags=[],
         shopify_tags=[],
         is_kids=is_kids,
+        department=department,
         image="https://example.com/1.jpg",
         secondaryImage=None,
         product_url="https://example.com/products/1",
@@ -91,6 +93,38 @@ def test_exact_child_age_excludes_older_kids_products():
     )
 
     assert [p.name for p in result.items] == ["Toddler Kurta"]
+
+
+def test_kids_results_enforce_age_gender_and_child_only_together():
+    products = [
+        _product(
+            "brand-a", "boy-2", "Toddler Boy Kurta", 1500,
+            True, ["2-3Y"], "men",
+        ),
+        _product(
+            "brand-a", "girl-2", "Toddler Girl Kurta", 1500,
+            True, ["2-3Y"], "women",
+        ),
+        _product(
+            "brand-a", "boy-12", "Junior Boy Kurta", 1900,
+            True, ["10-12Y"], "men",
+        ),
+        _product(
+            "brand-a", "adult", "Adult Men's Kurta", 3000,
+            False, ["M"], "men",
+        ),
+    ]
+
+    result = SearchService.search(
+        products,
+        query="kurta",
+        kids=True,
+        child_age_months=24,
+        department="men",
+        page_size=10,
+    )
+
+    assert [product.name for product in result.items] == ["Toddler Boy Kurta"]
 
 
 def test_child_age_is_not_relaxed_when_other_filters_are_relaxed():

@@ -31,7 +31,8 @@ class SessionEventRepository:
             event_metadata=metadata or {},
         )
         self.session.add(event)
-        await self.session.flush()
+        # Batched into the request's final transaction commit; no caller needs
+        # the generated event id during intent extraction or search.
         return event
 
     async def get_session_events(self, session_id: str, event_type: Optional[str] = None) -> list[SessionEvent]:

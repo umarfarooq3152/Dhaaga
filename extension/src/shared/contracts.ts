@@ -2,6 +2,7 @@ export interface ShoppingIntent {
   category: string | null;
   color: string | null;
   size: string | null;
+  fit: string | null;
   priceMax: number | null;
   priceMin: number | null;
   descriptive: string | null;
@@ -20,6 +21,14 @@ export interface ProductResult {
   productUrl: string;
   score: number;
   reason: string;
+  matchDetails?: {
+    colors: string[];
+    sizes: string[];
+    fit: string | null;
+    occasion: string | null;
+    audience: string | null;
+    imageMatchesColor: boolean | null;
+  };
 }
 
 export interface SearchResult {
@@ -29,6 +38,8 @@ export interface SearchResult {
   meta: {
     storeDomain: string;
     fetchedCount: number;
+    mappedCount: number;
+    exactCount: number;
     catalogCapped: boolean;
     relaxed: boolean;
     relaxedFilters: string[];

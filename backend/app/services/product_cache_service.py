@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -20,10 +21,19 @@ logger = logging.getLogger(__name__)
 class ProductCacheService:
     """Manages Redis-backed product cache with refresh orchestration."""
 
-    CACHE_TTL_SECONDS = 1800  # 30 minutes default
+    # The scheduler refreshes catalogs every 20 minutes. Keep the last good
+    # snapshot for a full day so a delayed/failed refresh never turns a user
+    # search into a synchronous multi-store Shopify crawl.
+    CACHE_TTL_SECONDS = 86400
     REFRESH_LOCK_TTL_SECONDS = 300  # 5 minute lock to prevent thundering herd
     CACHE_KEY_BRAND = "products:{brand_slug}"
     CACHE_KEY_REFRESH_LOCK = "refresh_lock:{brand_slug}"
+    # Redis stores the durable catalog, but decoding tens of megabytes of JSON
+    # and validating every Product on every chat turn is far more expensive
+    # than the actual filtering. All service instances in this worker share a
+    # short-lived decoded view; a successful refresh replaces it immediately.
+    MEMORY_CACHE_TTL_SECONDS = 300
+    _decoded_cache: dict[str, tuple[float, list[Product]]] = {}
 
     def __init__(self, redis_client: redis.Redis):
         """Initialize cache service.
@@ -44,6 +54,13 @@ class ProductCacheService:
             List of Product objects or None if not cached
         """
         try:
+            memory_entry = self._decoded_cache.get(brand_slug)
+            if memory_entry is not None:
+                expires_at, products = memory_entry
+                if expires_at > time.monotonic():
+                    return products
+                self._decoded_cache.pop(brand_slug, None)
+
             cache_key = self.CACHE_KEY_BRAND.format(brand_slug=brand_slug)
             cached_data = await self.redis.get(cache_key)
 
@@ -51,9 +68,14 @@ class ProductCacheService:
                 logger.debug(f"Cache miss for {brand_slug}")
                 return None
 
-            # Deserialize products
-            products_data = json.loads(cached_data)
-            products = [Product(**p) for p in products_data]
+            # Product validation is CPU-heavy for large catalogs. Move it off
+            # the event loop so concurrent brand reads can actually overlap and
+            # don't freeze unrelated API requests.
+            products = await asyncio.to_thread(self._deserialize_products, cached_data)
+            self._decoded_cache[brand_slug] = (
+                time.monotonic() + self.MEMORY_CACHE_TTL_SECONDS,
+                products,
+            )
             logger.debug(f"Cache hit for {brand_slug}: {len(products)} products")
             return products
         except Exception as e:
@@ -75,17 +97,45 @@ class ProductCacheService:
         """
         try:
             cache_key = self.CACHE_KEY_BRAND.format(brand_slug=brand_slug)
-            products_data = [p.dict() if hasattr(p, "dict") else p for p in products]
+            products_data = []
+            for product in products:
+                if isinstance(product, Product):
+                    payload = product.model_dump()
+                    # search_text is deliberately excluded from public API
+                    # serialization, but Redis is the internal retrieval index
+                    # and must retain it or every cache load recomputes semantic
+                    # evidence for the entire catalog.
+                    if product.semantics is not None:
+                        payload.setdefault("semantics", {})["search_text"] = (
+                            product.semantics.search_text
+                        )
+                    products_data.append(payload)
+                else:
+                    products_data.append(product)
             await self.redis.setex(
                 cache_key,
                 ttl,
                 json.dumps(products_data),
+            )
+            self._decoded_cache[brand_slug] = (
+                time.monotonic() + min(ttl, self.MEMORY_CACHE_TTL_SECONDS),
+                products,
             )
             logger.info(f"Cached {len(products)} products for {brand_slug}")
             return True
         except Exception as e:
             logger.error(f"Failed to cache products for {brand_slug}: {e}")
             return False
+
+    @staticmethod
+    def _deserialize_products(cached_data: str | bytes) -> list[Product]:
+        products_data = json.loads(cached_data)
+        # Legacy snapshots are intentionally not enriched here: doing CPU
+        # classification for every product in every brand before structured
+        # filters run makes a cold first search unacceptably slow. SearchService
+        # upgrades only the filtered/ranked candidates; scheduled refreshes
+        # persist profiles for the full catalog through tag_products_batch.
+        return [Product(**product) for product in products_data]
 
     async def _acquire_refresh_lock(self, brand_slug: str) -> bool:
         """Acquire a refresh lock to prevent concurrent refreshes (thundering herd).

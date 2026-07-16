@@ -7,8 +7,10 @@ function brandSlugFromId(productId: string): string {
   return productId.split(':')[0] ?? productId;
 }
 
-export async function toProduct(apiProduct: ApiProduct): Promise<Product> {
-  const brandNames = await getBrandNameMap();
+function mapProduct(
+  apiProduct: ApiProduct,
+  brandNames: Record<string, string>
+): Product {
   const slug = brandSlugFromId(apiProduct.id);
   return {
     id: apiProduct.id,
@@ -27,12 +29,33 @@ export async function toProduct(apiProduct: ApiProduct): Promise<Product> {
     // so the frontend's existing "Standard Delivery" fallback UI applies.
     deliveryEstimate: undefined,
     productUrl: apiProduct.product_url,
+    isKids: apiProduct.is_kids ?? false,
+    ageRangesMonths: apiProduct.age_ranges_months ?? [],
+    liveVerified: apiProduct.live_verified ?? false,
+    liveVerifiedAt: apiProduct.live_verified_at ?? undefined,
   };
 }
 
+export async function toProduct(apiProduct: ApiProduct): Promise<Product> {
+  let brandNames: Record<string, string> = {};
+  try {
+    brandNames = await getBrandNameMap();
+  } catch (error) {
+    // Brand display names are optional decoration. Never discard a valid
+    // search result because that secondary endpoint is temporarily down.
+    console.warn('Brand names unavailable; using catalog slugs.', error);
+  }
+  return mapProduct(apiProduct, brandNames);
+}
+
 export async function toProducts(apiProducts: ApiProduct[]): Promise<Product[]> {
-  // Brand map is fetched once and cached, so this is cheap despite the map.
-  return Promise.all(apiProducts.map(toProduct));
+  let brandNames: Record<string, string> = {};
+  try {
+    brandNames = await getBrandNameMap();
+  } catch (error) {
+    console.warn('Brand names unavailable; rendering products with slugs.', error);
+  }
+  return apiProducts.map((product) => mapProduct(product, brandNames));
 }
 
 export interface ProductSearchParams {

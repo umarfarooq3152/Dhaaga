@@ -22,7 +22,12 @@ class DeviceRepository:
             if device:
                 return device
 
-        device = Device()
+        # A browser can legitimately retain its anonymous id while the local
+        # development database is recreated or switched (for example Neon ->
+        # local Postgres). Preserve that supplied id when rebuilding the row;
+        # generating a different UUID leaves the request header pointing at a
+        # non-existent device and later chat/event inserts violate their FK.
+        device = Device(device_id=device_id) if device_id else Device()
         self.session.add(device)
         await self.session.flush()
         return device

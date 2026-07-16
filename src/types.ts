@@ -13,6 +13,10 @@ export interface Product {
   occasion: string;
   deliveryEstimate?: string;
   productUrl?: string;
+  isKids: boolean;
+  ageRangesMonths: Array<[number, number]>;
+  liveVerified: boolean;
+  liveVerifiedAt?: string;
 }
 
 /** Raw shape returned by the backend's /products* endpoints (schemas/product.py). */
@@ -26,10 +30,14 @@ export interface ApiProduct {
   occasion: string | null;
   category: string | null;
   department?: 'men' | 'women' | 'unisex' | null;
+  is_kids?: boolean;
+  age_ranges_months?: Array<[number, number]>;
   tags: string[];
   image: string;
   secondaryImage: string | null;
   product_url: string;
+  live_verified?: boolean;
+  live_verified_at?: string | null;
 }
 
 export interface ApiProductSearchResponse {
@@ -42,6 +50,7 @@ export interface ApiProductSearchResponse {
 
 export interface SessionState {
   occasion: string | null;
+  category: string | null;
   color_preference: string | null;
   budget_max: number | null;
   style_descriptors: string[];
@@ -52,13 +61,19 @@ export interface SessionState {
   department: string | null;
   wants_kids: boolean;
   child_age_months: number | null;
+  semantic_query: string | null;
+  excluded_styles: string[];
+  fallback_categories: string[];
+  fallback_styles: string[];
+  hard_constraints: string[];
+  soft_preferences: string[];
 }
 
 export interface ChatTurnResponse {
   session_id: string;
   reply: string;
   session_state: SessionState;
-  filters: { style: string; occasion: string; budget: string; color?: string; size?: string; age?: string };
+  filters: { category?: string; style: string; styles?: string[]; occasion: string; budget: string; color?: string; size?: string; age?: string };
   products: ApiProductSearchResponse;
   turn_type: 'fast_path' | 'llm_extraction';
 }
@@ -99,7 +114,9 @@ export interface Message {
 }
 
 export interface FilterChips {
+  category?: string;
   style: string;
+  styles?: string[];
   occasion: string;
   budget: string;
   color?: string;

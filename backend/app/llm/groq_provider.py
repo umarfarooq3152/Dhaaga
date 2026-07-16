@@ -6,6 +6,7 @@ import logging
 from groq import AsyncGroq
 
 from app.errors import ExternalServiceError
+from app.llm.intent_prompt import LLM_FIRST_INTENT_INSTRUCTION
 from app.schemas.session import IntentExtractionResult, SessionState
 
 logger = logging.getLogger(__name__)
@@ -15,6 +16,7 @@ Respond ONLY with a single JSON object (no prose, no markdown fences) matching t
 
 {
   "occasion": "mehndi" | "nikah" | "baraat" | "walima" | "engagement" | "eid" | "eid milan" | "chand raat" | "qawwali" | "milad" | "aqiqah" | "bridal shower" | "baby shower" | "iftar" | "birthday" | "dawat" | "farewell" | "graduation" | "orientation" | "color day" | "sports day" | "school function" | "jummah" | "basant" | "independence day" | "pakistan day" | "cultural day" | "diwali" | "holi" | "christmas" | "mourning" | "office" | "casual" | null,
+  "category": string | null,
   "color_preference": string | null,
   "budget_max": number | null,
   "style_descriptors": string[],
@@ -32,10 +34,13 @@ Rules:
 - Normalize Pakistani aliases: mayun/ubtan/dholki/sangeet to mehndi;
   wedding/shaadi to baraat; nikkah to nikah; valima/reception to walima;
   mangni/baat pakki to engagement; convocation to graduation.
+- category is the primary garment/product explicitly requested, such as polo,
+  sweater, jeans, kurta, shalwar kameez, lehenga, belt, or activewear. If the
+  shopper mentions a second garment only as styling context ("jeans to wear
+  with a black shirt"), category is the first requested product: jeans.
 - style_descriptors and excluded should only contain NEW items from this message (the
   caller accumulates them across turns); color_preference and budget_max overwrite.
-  style_descriptors also captures any specific garment/category named (e.g. "kurta",
-  "shalwar kameez", "polo", "lehenga", "sherwani"), not just fuzzy style words.
+  Put garment/product names in category, not style_descriptors.
 - excluded is ONLY for brand names or style/garment words the shopper explicitly
   wants to avoid (e.g. "not silk", "no Khaadi") — never put a message-category
   label there (like "sofa", "rude", "off-topic", "discount") just because the
@@ -47,8 +52,8 @@ Rules:
   also asks a follow-up question — partial extraction is still useful and must
   not be discarded.
 - Be consultative, not just a search box: count how many of {occasion,
-  budget_max, color_preference or style_descriptors (including a named
-  garment/category), size} are known after merging this message with the
+  budget_max, color_preference, category or style_descriptors, size} are known
+  after merging this message with the
   session context. If FEWER THAN 2 are known, the query is too vague to narrow
   well — assistant_reply should acknowledge what you're showing so far AND ask
   1-2 specific follow-up questions (e.g. "What's your budget range?", "Any
@@ -100,7 +105,7 @@ class GroqIntentProvider:
             f"Shopper's message: {text}"
         )
         messages = [
-            {"role": "system", "content": SYSTEM_INSTRUCTION},
+            {"role": "system", "content": LLM_FIRST_INTENT_INSTRUCTION},
             {"role": "user", "content": user_prompt},
         ]
 

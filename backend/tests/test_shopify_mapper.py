@@ -91,6 +91,24 @@ class TestColorExtraction:
             "yellow": "https://example.com/yellow.jpg",
         }
 
+    def test_extracts_color_images_from_shopify_image_variant_ids(self):
+        product = {
+            "options": [{"name": "Color", "values": ["Black", "Blue"]}],
+            "images": [
+                {"src": "https://example.com/black.jpg", "variant_ids": [101]},
+                {"src": "https://example.com/blue.jpg", "variant_ids": [102]},
+            ],
+            "variants": [
+                {"id": 101, "option1": "Black"},
+                {"id": 102, "option1": "Blue"},
+            ],
+        }
+
+        assert extract_color_images(product) == {
+            "black": "https://example.com/black.jpg",
+            "blue": "https://example.com/blue.jpg",
+        }
+
 
 class TestSizeExtraction:
     """Test size extraction from Shopify products."""
@@ -218,6 +236,16 @@ class TestMapperBasic:
         result = map_shopify_to_product(product, "brand", "domain.pk")
         assert result is None
 
+    def test_skips_towel_sets_from_outfit_catalog(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Frost Beige 3 Piece Embroidered Towel Set",
+            "product_type": "Ideas Home",
+            "tags": ["Towel Set"],
+        }
+        result = map_shopify_to_product(product, "brand", "domain.pk")
+        assert result is None
+
     def test_skips_non_apparel_by_title_with_no_category(self):
         """Real observed case: Sana Safinaz sells a notebook with no
         product_type set at all — must catch this via title, not category."""
@@ -230,6 +258,14 @@ class TestMapperBasic:
             product = {**SAMPLE_SHOPIFY_PRODUCT, "title": title, "product_type": ""}
             result = map_shopify_to_product(product, "brand", "domain.pk")
             assert result is None, f"Expected {title!r} to be excluded as non-apparel"
+
+    def test_skips_loose_fabric_listings_from_outfit_results(self):
+        product = {
+            **SAMPLE_SHOPIFY_PRODUCT,
+            "title": "Embroidered Organza Fabric (1Pc)",
+            "product_type": "Loose Fabrics",
+        }
+        assert map_shopify_to_product(product, "brand", "domain.pk") is None
 
     def test_skips_non_apparel_plural_category(self):
         # Regression: switching to whole-word matching (to stop "polo"

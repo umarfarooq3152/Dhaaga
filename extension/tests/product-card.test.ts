@@ -56,4 +56,21 @@ describe('product card', () => {
     expect(pants.querySelector('.product-media')?.classList).toContain('is-lower-body');
     expect(shirt.querySelector('.product-media')?.classList).not.toContain('is-lower-body');
   });
+
+  it('shows verified facts and warns when the preview is not color-specific', () => {
+    const card = renderProductCard({
+      id: '5', title: 'Baggy Jeans', price: 4500, currency: 'PKR',
+      imageUrl: 'https://cdn.example.com/generic.jpg',
+      productUrl: 'https://outfitters.com.pk/products/baggy-jeans',
+      score: 10, reason: 'Matches the requested details.',
+      matchDetails: {
+        colors: ['Black'], sizes: ['32'], fit: 'baggy', occasion: null,
+        audience: 'men', imageMatchesColor: false,
+      },
+    }, 0, vi.fn());
+
+    expect(card.querySelector('.verified-facts')?.textContent).toContain('Black');
+    expect(card.querySelector('.verified-facts')?.textContent).toContain('baggy fit');
+    expect(card.querySelector('.image-color-notice')?.textContent).toContain('preview image may differ');
+  });
 });

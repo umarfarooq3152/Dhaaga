@@ -84,3 +84,51 @@ async def test_fallback_timeout_also_raises_external_service_error():
 
     with pytest.raises(ExternalServiceError):
         await provider.extract("hi", SessionState())
+
+
+@pytest.mark.asyncio
+async def test_primary_rate_limit_opens_circuit_until_cooldown_expires():
+    now = [100.0]
+    primary = FakeProvider(
+        error=ExternalServiceError(
+            "quota exhausted",
+            service="gemini",
+            details={"status_code": 429, "reason": "rate_limited"},
+        )
+    )
+    fallback = FakeProvider(result=_result("from fallback"))
+    provider = FallbackIntentProvider(
+        primary,
+        fallback,
+        1.0,
+        1.0,
+        primary_rate_limit_cooldown_seconds=60.0,
+        clock=lambda: now[0],
+    )
+
+    await provider.extract("first", SessionState())
+    await provider.extract("second", SessionState())
+
+    assert primary.call_count == 1
+    assert fallback.call_count == 2
+
+    now[0] = 160.0
+    await provider.extract("after cooldown", SessionState())
+
+    assert primary.call_count == 2
+    assert fallback.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_non_rate_limit_primary_error_does_not_open_circuit():
+    primary = FakeProvider(
+        error=ExternalServiceError("temporary failure", service="gemini")
+    )
+    fallback = FakeProvider(result=_result("from fallback"))
+    provider = FallbackIntentProvider(primary, fallback, 1.0, 1.0)
+
+    await provider.extract("first", SessionState())
+    await provider.extract("second", SessionState())
+
+    assert primary.call_count == 2
+    assert fallback.call_count == 2

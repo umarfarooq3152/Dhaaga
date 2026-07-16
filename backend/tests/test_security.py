@@ -35,7 +35,9 @@ class TestAccessToken:
     def test_decode_rejects_tampered_token(self, fake_settings, monkeypatch):
         monkeypatch.setattr("app.security.get_settings", lambda: fake_settings)
         token = create_access_token(uuid4())
-        tampered = token[:-1] + ("a" if token[-1] != "a" else "b")
+        header, payload, signature = token.split(".")
+        tampered_signature = ("a" if signature[0] != "a" else "b") + signature[1:]
+        tampered = ".".join((header, payload, tampered_signature))
         assert decode_access_token(tampered) is None
 
     def test_decode_rejects_garbage(self, fake_settings, monkeypatch):

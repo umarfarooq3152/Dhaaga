@@ -1,7 +1,29 @@
 """Product schema — used throughout the API."""
 
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
+
+
+class ProductSemantics(BaseModel):
+    """Versioned retrieval profile derived from trustworthy catalog fields."""
+
+    version: str = "catalog-semantic-v4"
+    product_family: Optional[str] = None
+    audiences: list[str] = Field(default_factory=list)
+    occasions: list[str] = Field(default_factory=list)
+    attributes: list[str] = Field(default_factory=list)
+    formality: int = Field(default=1, ge=0, le=4)
+    tradition: Optional[str] = None
+    fabrics: list[str] = Field(default_factory=list)
+    embellishment: str = Field(default="none", pattern="^(none|light|heavy)$")
+    festive_markers: list[str] = Field(default_factory=list)
+    evidence_sources: list[str] = Field(default_factory=list)
+    search_text: str = Field(
+        default="",
+        exclude=True,
+        description="Internal retrieval text; never included in product API payloads.",
+    )
 
 
 class Product(BaseModel):
@@ -47,9 +69,15 @@ class Product(BaseModel):
         default_factory=list,
         description="Explicit child-size age ranges, stored as inclusive months.",
     )
+    semantics: Optional[ProductSemantics] = Field(
+        None,
+        description="Versioned canonical profile used by hybrid retrieval.",
+    )
     image: str
     secondaryImage: Optional[str] = None
     product_url: str
+    live_verified: bool = False
+    live_verified_at: Optional[datetime] = None
 
     class Config:
         json_schema_extra = {

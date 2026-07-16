@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.schemas.product import Product
+from app.nlp.product_semantics import enrich_product_semantics
 from app.services.product_cache_service import ProductCacheService
 
 
@@ -41,6 +42,7 @@ def mock_redis():
 @pytest.fixture
 async def cache_service(mock_redis):
     """Create cache service with mocked Redis."""
+    ProductCacheService._decoded_cache.clear()
     return ProductCacheService(mock_redis)
 
 
@@ -110,6 +112,49 @@ class TestProductCacheService:
         cache_service.redis.get = AsyncMock(return_value=None)
         cached = await cache_service.get_cached_products("nonexistent_brand")
         assert cached is None
+
+    @pytest.mark.asyncio
+    async def test_decoded_memory_cache_avoids_reloading_redis(self, cache_service):
+        product = Product(
+            id="brand:1",
+            name="Blue Shirt",
+            description="",
+            price=2500.0,
+            colors=["Blue"],
+            sizes=["M"],
+            occasion="casual",
+            tags=[],
+            image="",
+            secondaryImage=None,
+            product_url="",
+        )
+        assert await cache_service.set_cached_products("brand", [product])
+        cache_service.redis.get = AsyncMock(return_value=None)
+
+        first = await cache_service.get_cached_products("brand")
+        second = await cache_service.get_cached_products("brand")
+
+        assert first == second == [product]
+        cache_service.redis.get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_internal_cache_retains_excluded_semantic_search_text(
+        self, cache_service, mock_redis
+    ):
+        enriched = enrich_product_semantics(Product(
+            id="brand:semantic",
+            name="Festive Silk Kurta",
+            description="Mirror work organza occasion wear",
+            price=12000,
+            category="Kurta",
+            image="https://example.com/a.jpg",
+            product_url="https://example.com/products/a",
+        ))
+
+        assert await cache_service.set_cached_products("semantic", [enriched])
+        stored = json.loads(mock_redis._cache["products:semantic"])
+
+        assert stored[0]["semantics"]["search_text"]
 
     @pytest.mark.asyncio
     async def test_refresh_lock_acquisition(self, cache_service):
@@ -259,4 +304,3 @@ class TestProductCacheService:
         assert "alkaram" in results
         # Should have been called for each brand
         assert cache_service.refresh_brand_products.call_count == 2
-

@@ -8,13 +8,17 @@ const DEFAULT_FILTERS: FilterChips = {
   budget: 'All Budgets',
 };
 
-const CHAT_SNAPSHOT_KEY = 'dhaaga-chat-snapshot-v1';
+// Bump when server-side intent/session semantics change so an evaluator never
+// rehydrates a stale, polluted conversation from an older build.
+const CHAT_SNAPSHOT_KEY = 'dhaaga-chat-snapshot-v2';
+const MIN_RESPONSE_TRANSITION_MS = 900;
 
 interface ChatSnapshot {
   entryQuery: string;
   sessionId: string | null;
   messages: Message[];
   products: Product[];
+  totalResults?: number;
   filters: FilterChips;
   sessionState: SessionState | null;
 }
@@ -62,6 +66,7 @@ function composeInitialQuery(
 interface UseSessionChatResult {
   messages: Message[];
   filteredProducts: Product[];
+  totalResults: number;
   filters: FilterChips;
   isChatLoading: boolean;
   isProductsLoading: boolean;
@@ -85,12 +90,17 @@ export function useSessionChat(
   );
   const [messages, setMessages] = useState<Message[]>(initialSnapshotRef.current?.messages ?? []);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>(initialSnapshotRef.current?.products ?? []);
+  const [totalResults, setTotalResults] = useState(
+    initialSnapshotRef.current?.totalResults ?? initialSnapshotRef.current?.products.length ?? 0
+  );
   const [filters, setFilters] = useState<FilterChips>(initialSnapshotRef.current?.filters ?? DEFAULT_FILTERS);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isProductsLoading, setIsProductsLoading] = useState(false);
+  const requestInFlightRef = useRef(false);
 
   const sendMessage = useCallback((text: string) => {
-    if (!text.trim()) return;
+    if (!text.trim() || requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
 
     const userMessage: Message = {
       id: nextMessageId('user'),
@@ -102,18 +112,24 @@ export function useSessionChat(
     setIsChatLoading(true);
     setIsProductsLoading(true);
 
-    sendSessionMessage(sessionIdRef.current, text, department, sessionStateRef.current)
-      .then((result) => {
+    Promise.all([
+      sendSessionMessage(sessionIdRef.current, text, department, sessionStateRef.current),
+      new Promise<void>((resolve) => window.setTimeout(resolve, MIN_RESPONSE_TRANSITION_MS)),
+    ])
+      .then(([result]) => {
         sessionIdRef.current = result.sessionId;
         sessionStateRef.current = result.sessionState;
         setFilters(result.filters);
         setFilteredProducts(result.products);
+        setTotalResults(result.total);
+        const assistantReply = result.reply?.trim()
+          || "I’ve updated your search. Tell me another detail if you’d like me to narrow it further.";
         setMessages((prev) => [
           ...prev,
           {
             id: nextMessageId('assistant'),
             sender: 'assistant',
-            text: result.reply,
+            text: assistantReply,
             timestamp: nowStr(),
           },
         ]);
@@ -131,6 +147,7 @@ export function useSessionChat(
         ]);
       })
       .finally(() => {
+        requestInFlightRef.current = false;
         setIsChatLoading(false);
         setIsProductsLoading(false);
       });
@@ -148,6 +165,7 @@ export function useSessionChat(
       // Nothing has been sent to the backend yet — just reset local UI state.
       setMessages([welcomeMessage]);
       setFilteredProducts([]);
+      setTotalResults(0);
       setFilters(DEFAULT_FILTERS);
       sessionStateRef.current = null;
       return;
@@ -159,6 +177,7 @@ export function useSessionChat(
         sessionStateRef.current = result.sessionState;
         setFilters(result.filters);
         setFilteredProducts(result.products);
+        setTotalResults(result.total);
         setMessages([{ ...welcomeMessage, text: result.reply }]);
       })
       .catch((error) => {
@@ -201,6 +220,7 @@ export function useSessionChat(
       sessionId: sessionIdRef.current,
       messages,
       products: filteredProducts,
+      totalResults,
       filters,
       sessionState: sessionStateRef.current,
     };
@@ -217,7 +237,7 @@ export function useSessionChat(
         console.warn('Could not persist the current chat snapshot:', error);
       }
     }
-  }, [entryQuery, messages, filteredProducts, filters]);
+  }, [entryQuery, messages, filteredProducts, totalResults, filters]);
 
-  return { messages, filteredProducts, filters, isChatLoading, isProductsLoading, sendMessage, resetSession };
+  return { messages, filteredProducts, totalResults, filters, isChatLoading, isProductsLoading, sendMessage, resetSession };
 }

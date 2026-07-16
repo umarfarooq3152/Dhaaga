@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import re
+from functools import lru_cache
 
 from app.schemas.product import Product
 
@@ -25,7 +26,7 @@ EVENTS: tuple[EventProfile, ...] = (
                  ("white", "ivory", "cream", "beige", "pastel", "blush", "silver"),
                  ("embroidered", "embroidery", "embellished", "formal", "festive", "traditional")),
     EventProfile("baraat", ("baraat", "barat", "shaadi", "shadi", "wedding", "bridal", "rukhsati", "winter wedding"),
-                 ("lehenga", "choli", "gharara", "sharara", "pishwas", "sherwani", "prince coat", "waistcoat", "3 piece", "3-piece"),
+                 ("lehenga", "choli", "gharara", "sharara", "pishwas", "dress", "sherwani", "prince coat", "waistcoat", "3 piece", "3-piece"),
                  ("red", "maroon", "burgundy", "gold", "crimson"),
                  ("bridal", "embroidered", "embellished", "zari", "formal", "festive", "traditional")),
     EventProfile("walima", ("walima", "valima", "reception"),
@@ -37,7 +38,7 @@ EVENTS: tuple[EventProfile, ...] = (
                  ("pastel", "gold", "light pink", "pink", "blue", "mint", "lavender", "peach", "red"),
                  ("embroidered", "embellished", "formal", "festive")),
     EventProfile("eid", ("eid", "eid ul fitr", "eid-ul-fitr", "eid ul adha", "eid-ul-adha", "bakra eid", "choti eid"),
-                 ("kurta", "shalwar kameez", "gharara", "sharara", "pishwas", "waistcoat", "sherwani", "3 piece", "3-piece", "2 piece", "2-piece"),
+                 ("kurta", "shalwar kameez", "gharara", "sharara", "pishwas", "dress", "waistcoat", "sherwani", "3 piece", "3-piece", "2 piece", "2-piece"),
                  (), ("embroidered", "embellished", "festive", "traditional", "printed")),
     EventProfile("eid milan", ("eid milan", "eid get together", "eid party"),
                  ("kurta", "shalwar kameez", "frock", "gharara", "sharara", "waistcoat", "2 piece", "2-piece", "3 piece", "3-piece"),
@@ -94,10 +95,10 @@ EVENTS: tuple[EventProfile, ...] = (
                  ("kurta", "shalwar kameez", "frock", "3 piece", "3-piece"),
                  ("yellow", "mustard", "orange", "green"), ("printed", "embroidered", "festive")),
     EventProfile("independence day", ("independence day", "14 august", "fourteenth august", "azadi day"),
-                 ("kurta", "shalwar kameez", "shirt", "waistcoat"),
+                 ("kurta", "shalwar kameez", "shirt", "t shirt", "t-shirt", "top", "dress", "skirt", "trouser", "jeans", "co-ord", "waistcoat"),
                  ("green", "white"), ("printed", "traditional")),
     EventProfile("pakistan day", ("pakistan day", "23 march", "twenty third march"),
-                 ("kurta", "shalwar kameez", "shirt", "waistcoat"),
+                 ("kurta", "shalwar kameez", "shirt", "t shirt", "t-shirt", "top", "dress", "skirt", "trouser", "jeans", "co-ord", "waistcoat"),
                  ("green", "white"), ("printed", "traditional")),
     EventProfile("cultural day", ("cultural day", "culture day", "heritage day", "sindhi culture day"),
                  ("kurta", "shalwar kameez", "ajrak", "topi", "phulkari", "peshgabi", "balochi dress", "waistcoat", "frock", "gharara"),
@@ -114,7 +115,7 @@ EVENTS: tuple[EventProfile, ...] = (
     EventProfile("mourning", ("janaza", "funeral", "soyem", "chehlum", "condolence"),
                  ("shalwar kameez", "kurta", "abaya", "dupatta"),
                  ("white", "black", "grey", "navy"), ("plain", "modest", "traditional")),
-    EventProfile("office", ("office", "workwear", "job interview", "interview", "corporate event", "formal dinner"),
+    EventProfile("office", ("office", "work", "workwear", "presentation", "business presentation", "job interview", "interview", "corporate event", "formal dinner"),
                  ("suit", "shirt", "trouser", "kurta", "shalwar kameez", "blazer"),
                  ("black", "navy", "white", "beige", "grey"), ("formal", "minimal", "plain")),
     EventProfile("casual", ("casual", "daily wear", "everyday", "university", "college"),
@@ -157,9 +158,35 @@ EVENT_FORMALITY_TAGS: dict[str, tuple[str, ...]] = {
 
 _BY_NAME = {event.name: event for event in EVENTS}
 
+# These are broad wearing contexts, not mutually exclusive celebrations. A
+# catalog can legitimately label a formal kurta as "casual" while its title,
+# colour and construction still make it suitable for a nikah. They therefore
+# must not trigger the cross-event contradiction rule below.
+_NON_EXCLUSIVE_CONTEXTS = {"casual", "office"}
+
+
+@lru_cache(maxsize=512)
+def _phrase_pattern(phrase: str) -> re.Pattern[str]:
+    return re.compile(rf"(?<![a-z0-9]){re.escape(phrase.lower())}(?![a-z0-9])")
+
 
 def _contains_phrase(text: str, phrase: str) -> bool:
-    return re.search(rf"(?<![a-z0-9]){re.escape(phrase.lower())}(?![a-z0-9])", text) is not None
+    return _phrase_pattern(phrase).search(text) is not None
+
+
+@lru_cache(maxsize=256)
+def _phrases_pattern(phrases: tuple[str, ...]) -> re.Pattern[str] | None:
+    if not phrases:
+        return None
+    alternatives = "|".join(
+        re.escape(phrase.lower()) for phrase in sorted(phrases, key=len, reverse=True)
+    )
+    return re.compile(rf"(?<![a-z0-9])(?:{alternatives})(?![a-z0-9])")
+
+
+def _contains_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+    pattern = _phrases_pattern(phrases)
+    return pattern is not None and pattern.search(text) is not None
 
 
 def extract_event(text: str) -> str | None:
@@ -178,29 +205,66 @@ def is_known_event(name: str | None) -> bool:
     return bool(name and name.lower() in _BY_NAME)
 
 
+def event_garments(name: str | None) -> tuple[str, ...]:
+    """Return the curated garment vocabulary for a canonical event."""
+    if not name:
+        return ()
+    canonical = extract_event(name) or name.lower()
+    event = _BY_NAME.get(canonical)
+    return event.garments if event else ()
+
+
 def event_match_score(product: Product, event_name: str) -> float:
     """Score whether a garment is culturally appropriate for an event."""
-    canonical = extract_event(event_name) or event_name.lower()
+    normalized_event = event_name.lower()
+    canonical = (
+        normalized_event
+        if normalized_event in _BY_NAME
+        else extract_event(event_name) or normalized_event
+    )
     event = _BY_NAME.get(canonical)
     if event is None:
         return 1.0 if product.occasion == event_name.lower() else 0.0
+
+    raw_product_event = (product.occasion or "").lower()
+    product_event = (
+        raw_product_event
+        if raw_product_event in _BY_NAME
+        else extract_event(raw_product_event)
+    )
+    if (
+        product_event
+        and product_event != event.name
+        and product_event not in _NON_EXCLUSIVE_CONTEXTS
+    ):
+        # A product explicitly assigned to another named celebration is a
+        # contradiction, not a weak match based on a shared color or garment.
+        return 0.0
 
     text = " ".join((
         product.name, product.category or "", product.description or "",
         " ".join(product.shopify_tags), " ".join(product.tags), " ".join(product.colors),
     )).lower()
-    if product.occasion == event.name or any(_contains_phrase(text, alias) for alias in event.aliases):
+    garment = _contains_any_phrase(text, event.garments)
+    # Naming an event is not proof that an item is wearable. Henna stencils,
+    # décor, favors, and other event merchandise often carry "Mehndi" or
+    # "Wedding" tags. Every occasion result must first prove it belongs to a
+    # culturally appropriate garment family.
+    if not garment:
+        return 0.0
+
+    if product.occasion == event.name or _contains_any_phrase(text, event.aliases):
         return 1.0
 
-    garment = any(_contains_phrase(text, term) for term in event.garments)
-    color = any(_contains_phrase(text, term) for term in event.colors)
+    color = _contains_any_phrase(text, event.colors)
     formality = EVENT_FORMALITY_TAGS.get(event.name, ())
-    festive = any(
-        _contains_phrase(text, term)
-        for term in (*event.festive_markers, *formality)
-    )
-    if not garment or not (color or festive):
+    festive = _contains_any_phrase(text, (*event.festive_markers, *formality))
+    if not (color or festive):
         return 0.0
+    if event.name in {"independence day", "pakistan day"}:
+        # National-day intent is primarily visual. Green/white clothing leads;
+        # printed/traditional festive pieces remain useful near-matches.
+        return min(1.0, (0.85 if color else 0.0) + (0.15 if festive else 0.0))
     return 0.5 + (0.25 if color else 0.0) + (0.25 if festive else 0.0)
 
 

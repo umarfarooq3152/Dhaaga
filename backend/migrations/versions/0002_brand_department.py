@@ -53,6 +53,11 @@ def upgrade() -> None:
             f"""
             INSERT INTO brand_registry (name, slug, domain, department, is_active)
             VALUES ('{brand["name"]}', '{brand["slug"]}', '{brand["domain"]}', 'men', true)
+            ON CONFLICT (slug) DO UPDATE SET
+                name = EXCLUDED.name,
+                domain = EXCLUDED.domain,
+                department = 'men',
+                is_active = true
             """
         )
 

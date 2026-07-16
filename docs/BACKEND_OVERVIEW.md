@@ -2,16 +2,16 @@
 
 ## Overview
 
-Dhaaga is a conversational search backend for Pakistani clothing brands. This is a **live-fetch-with-cache** MVP that avoids building a persistent product database.
+Dhaaga is a conversational search backend for Pakistani clothing brands. This is a **cached-retrieval + live-verification** MVP that avoids building a persistent product database.
 
-**Key insight:** Products are fetched live from Shopify storefronts, cached in Redis for 20-30 minutes, and searched via keyword matching (no embeddings). This eliminates the need for ingestion pipelines, crawl state tracking, and pgvector — making the backend lean and fast.
+**Key insight:** Redis holds a refreshable semantic shortlist index, while every displayed chat result is re-fetched from its individual Shopify product endpoint for current stock, price and variants. This preserves interactive latency without treating the cache as the source of truth.
 
 ## Architecture Principles
 
 1. **No persistent product DB** — Shopify storefronts are the source of truth
-2. **Live-fetch + cache** — Brief Redis cache (20-30 min TTL) with proactive refresh
-3. **Tier-1 only** — 16 Shopify-based brands, no complex scraping
-4. **Keyword-based search** — Fuzzy substring matching over product metadata
+2. **Hybrid live search** — Cached shortlist retrieval followed by bounded live product verification
+3. **Shopify registry** — 25 active Pakistani brands, no persistent product table
+4. **Evidence ranking** — Structured filters plus cultural, fabric, formality and embellishment evidence
 5. **Lightweight LLM integration** — Gemini (primary) → Groq (fallback) for intent extraction
 6. **Session-scoped state** — Redis-backed session store, no persistent conversation history required
 

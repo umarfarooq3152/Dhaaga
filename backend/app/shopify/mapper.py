@@ -39,11 +39,13 @@ MIN_PLAUSIBLE_PRICE = 200.0  # backstop against other brands' similar data quirk
 NON_APPAREL_KEYWORDS = [
     "pillow", "cushion", "bed sheet", "bedsheet", "quilt", "blanket", "curtain",
     "rug", "showpiece", "vase", "tray", "coaster", "candle", "home decor",
+    "towel", "bath sheet", "bathrobe", "table linen",
     "perfume", "fragrance", "cologne", "eau de",
     "bangle", "bracelet", "necklace", "earring", "jewelry", "jewellery", "ring set",
     "notebook", "diary", "journal", "sunglasses", "fashion glasses",
     "mehndi stencil", "henna stencil", "stencil",
     "wallet", "potli", "mug", "kitchen", "bbq", "eye mask", "sleep mask",
+    "loose fabric",
 ]
 
 # Footwear stays outside the main web app's clothing-only catalog, but the
@@ -54,6 +56,22 @@ FOOTWEAR_KEYWORDS = [
     "heels", "flats", "loafers", "boots", "flip flop", "flip-flop",
 ]
 
+
+def _keyword_union_pattern(keywords: list[str]) -> re.Pattern[str]:
+    alternatives = "|".join(
+        rf"(?:{re.escape(keyword)})s?" for keyword in sorted(keywords, key=len, reverse=True)
+    )
+    return re.compile(rf"(?<![a-z0-9])(?:{alternatives})(?![a-z0-9])")
+
+
+# Search-time filtering used to run one regex per keyword per product (over
+# two million searches for a broad catalog). These immutable vocabularies can
+# be compiled into one expression and checked once per listing.
+_NON_APPAREL_PATTERN = _keyword_union_pattern(NON_APPAREL_KEYWORDS)
+_NON_APPAREL_AND_FOOTWEAR_PATTERN = _keyword_union_pattern(
+    [*NON_APPAREL_KEYWORDS, *FOOTWEAR_KEYWORDS]
+)
+
 # Identifies kids apparel so it can be tagged (is_kids) rather than shown
 # mixed into ordinary adult searches — real observed case: Gul Ahmed's
 # "Toddler Boy Multi Sweatshirt" and "Junior Boy Clay Printed Sweatshirt"
@@ -61,7 +79,10 @@ FOOTWEAR_KEYWORDS = [
 # uses its own category prefix ("BTK-East" / "BTK-West") with no kids
 # keyword in the title at all, so it needs a separate category-prefix
 # check rather than a title keyword.
-KIDS_KEYWORDS = ["kids", "kid", "boys", "girls", "boy", "girl", "toddler", "infant", "newborn"]
+KIDS_KEYWORDS = [
+    "kids", "kid", "boys", "girls", "boy", "girl", "toddler", "infant",
+    "newborn", "junior", "juniors",
+]
 KIDS_CATEGORY_PREFIXES = ("btk",)
 
 WOMEN_AUDIENCE_WORDS = ["women", "woman", "womens", "ladies", "female"]
@@ -103,7 +124,7 @@ def _extract_shopify_tags(shopify_product: dict[str, Any]) -> list[str]:
     return [str(t).strip() for t in raw if str(t).strip()]
 
 
-def _is_non_apparel(
+def is_non_apparel_listing(
     title: str,
     category: str | None,
     shopify_tags: list[str],
@@ -111,11 +132,8 @@ def _is_non_apparel(
     allow_footwear: bool = False,
 ) -> bool:
     text = f"{title} {category or ''} {' '.join(shopify_tags)}".lower()
-    excluded = NON_APPAREL_KEYWORDS if allow_footwear else [
-        *NON_APPAREL_KEYWORDS,
-        *FOOTWEAR_KEYWORDS,
-    ]
-    return any(_contains_word(keyword, text) for keyword in excluded)
+    pattern = _NON_APPAREL_PATTERN if allow_footwear else _NON_APPAREL_AND_FOOTWEAR_PATTERN
+    return pattern.search(text) is not None
 
 
 def _is_kids_apparel(
@@ -233,12 +251,19 @@ def extract_color_images(shopify_product: dict[str, Any]) -> dict[str, str]:
         for image in shopify_product.get("images", [])
         if image.get("id") and image.get("src")
     }
+    images_by_variant_id = {
+        str(variant_id): image.get("src", "")
+        for image in shopify_product.get("images", [])
+        if image.get("src")
+        for variant_id in (image.get("variant_ids") or [])
+    }
     result: dict[str, str] = {}
     for variant in shopify_product.get("variants", []):
         color = str(variant.get(f"option{color_option_index}") or "").strip().lower()
         featured = variant.get("featured_image") or {}
         src = featured.get("src") if isinstance(featured, dict) else None
         src = src or images_by_id.get(str(variant.get("image_id")))
+        src = src or images_by_variant_id.get(str(variant.get("id")))
         if color and src and color not in result:
             result[color] = src
     return result
@@ -299,7 +324,7 @@ def map_shopify_to_product(
             logger.debug(f"Skipping unit-sale product (sold by {category}): {title}")
             return None
 
-        if _is_non_apparel(
+        if is_non_apparel_listing(
             title,
             category,
             shopify_tags,

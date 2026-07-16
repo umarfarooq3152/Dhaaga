@@ -28,6 +28,9 @@ from app.services.product_cache_service import (
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+logging.getLogger("app").setLevel(
+    getattr(logging, settings.log_level.upper(), logging.INFO)
+)
 
 # Global cache service (initialized on startup)
 _cache_service: ProductCacheService | None = None
@@ -43,7 +46,7 @@ async def get_cache_service() -> ProductCacheService:
 
 
 async def refresh_products_job():
-    """Background job to refresh all brand products every 20 minutes."""
+    """Background job to refresh all brand products on the configured interval."""
     try:
         logger.info("Starting product refresh job")
         cache_service = await get_cache_service()
@@ -81,13 +84,16 @@ async def lifespan(app: FastAPI):
     _scheduler.add_job(
         refresh_products_job,
         "interval",
-        minutes=20,
+        minutes=settings.product_cache_refresh_interval_minutes,
         id="refresh_products",
         name="Refresh all brand products",
         max_instances=1,  # Prevent concurrent runs
     )
     _scheduler.start()
-    logger.info("✓ Background scheduler started (refresh every 20 min)")
+    logger.info(
+        "✓ Background scheduler started (refresh every %s min)",
+        settings.product_cache_refresh_interval_minutes,
+    )
 
     yield
 

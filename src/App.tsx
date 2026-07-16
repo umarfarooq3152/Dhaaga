@@ -13,11 +13,26 @@ import { useDeviceId } from './hooks/useDeviceId';
 import { useWishlist } from './hooks/useWishlist';
 import { useAuth } from './hooks/useAuth';
 import { updateDeviceSize } from './api/devices';
+import { getStoredAuthToken } from './api/client';
+import { getOnboardingProfile, saveOnboardingProfile } from './utils/onboarding';
+
+const ACTIVE_SCREEN_KEY = 'dhaaga-active-screen-v1';
+
+function getInitialScreen(hasProfile: boolean): CurrentScreen {
+  const stored = sessionStorage.getItem(ACTIVE_SCREEN_KEY);
+  if (stored === 'chat') return 'chat';
+  return hasProfile || getStoredAuthToken() ? 'discovery' : 'onboarding';
+}
 
 export default function App() {
-  const [currentScreen, setCurrentScreen] = useState<CurrentScreen>('onboarding');
-  const [userName, setUserName] = useState<string>('Meera');
-  const [department, setDepartment] = useState<'men' | 'women' | undefined>(undefined);
+  const [initialProfile] = useState(getOnboardingProfile);
+  const [currentScreen, setCurrentScreen] = useState<CurrentScreen>(() =>
+    getInitialScreen(Boolean(initialProfile))
+  );
+  const [userName, setUserName] = useState<string>(() => initialProfile?.name || 'Meera');
+  const [department, setDepartment] = useState<'men' | 'women' | undefined>(() =>
+    initialProfile?.department || undefined
+  );
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [chatQuery, setChatQuery] = useState<string>('');
   const [chatFilters, setChatFilters] = useState<{ style?: string, occasion?: string, budget?: string }>({});
@@ -31,6 +46,15 @@ export default function App() {
   );
   const [isWishlistOpen, setIsWishlistOpen] = useState(false);
 
+  useEffect(() => {
+    // Preserve the working chat across an accidental refresh. Product detail
+    // cannot be restored without its selected product, so it returns to chat.
+    sessionStorage.setItem(
+      ACTIVE_SCREEN_KEY,
+      currentScreen === 'detail' ? 'chat' : currentScreen
+    );
+  }, [currentScreen]);
+
   // Once logged in, an account's saved preferences take over from
   // whatever was picked in onboarding (which only ever set client-side
   // state) — mirrors the "wishlist and preferences persist to account" ask.
@@ -40,12 +64,20 @@ export default function App() {
     if (auth.user.department === 'men' || auth.user.department === 'women') {
       setDepartment(auth.user.department);
     }
+    saveOnboardingProfile({
+      name: auth.user.name,
+      preferredSize: auth.user.preferred_size,
+      department: auth.user.department === 'men' || auth.user.department === 'women'
+        ? auth.user.department
+        : null,
+    });
+    setCurrentScreen((screen) => screen === 'onboarding' ? 'discovery' : screen);
   }, [auth.user]);
 
   const handleOnboardingComplete = (name: string, size: string, dept: 'men' | 'women') => {
     setUserName(name);
     setDepartment(dept);
-    // Per TDD §10, only `size` persists server-side — name stays client-only.
+    saveOnboardingProfile({ name, preferredSize: size, department: dept });
     if (deviceId) {
       updateDeviceSize(deviceId, size).catch((error) => {
         console.error('Failed to save preferred size:', error);
@@ -55,6 +87,11 @@ export default function App() {
   };
 
   const handleOnboardingSkip = () => {
+    saveOnboardingProfile({
+      name: userName,
+      preferredSize: null,
+      department: department || null,
+    });
     setCurrentScreen('discovery');
   };
 

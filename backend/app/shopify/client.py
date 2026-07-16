@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -30,7 +31,7 @@ class ShopifyClient:
         self.timeout = timeout
 
     async def fetch_products(
-        self, domain: str, limit: int = 250, page: int = 1
+        self, domain: str, limit: int = 250, page: int = 1, retries: int = 3
     ) -> dict[str, Any]:
         """Fetch products from a Shopify storefront.
         
@@ -50,30 +51,35 @@ class ShopifyClient:
         url = f"https://{domain}/products.json"
         params = {"limit": min(max(limit, 1), 250), "page": max(page, 1)}
 
-        try:
-            headers = {"User-Agent": BROWSER_USER_AGENT}
-            async with aiohttp.ClientSession(headers=headers) as session:
-                async with session.get(url, params=params, timeout=self.timeout) as resp:
-                    if resp.status == 200:
-                        return await resp.json()
-                    elif resp.status == 404:
-                        logger.warning(f"Shopify endpoint not found for {domain}")
-                        return {"products": []}
-                    else:
-                        logger.error(
-                            f"Shopify API error for {domain}: "
-                            f"status={resp.status}"
+        headers = {"User-Agent": BROWSER_USER_AGENT}
+        for attempt in range(max(1, retries)):
+            try:
+                async with aiohttp.ClientSession(headers=headers) as session:
+                    async with session.get(url, params=params, timeout=self.timeout) as resp:
+                        if resp.status == 200:
+                            return await resp.json()
+                        if resp.status == 404:
+                            logger.warning(f"Shopify endpoint not found for {domain}")
+                            return {"products": []}
+                        if resp.status not in {429, 500, 502, 503, 504}:
+                            logger.error(f"Shopify API error for {domain}: status={resp.status}")
+                            return {"products": []}
+                        logger.warning(
+                            "Retryable Shopify response for %s page %s: %s (attempt %s/%s)",
+                            domain, page, resp.status, attempt + 1, retries,
                         )
-                        return {"products": []}
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout fetching products from {domain}")
-            return {"products": []}
-        except aiohttp.ClientError as e:
-            logger.error(f"Failed to fetch from {domain}: {e}")
-            return {"products": []}
+            except (asyncio.TimeoutError, aiohttp.ClientError) as error:
+                logger.warning(
+                    "Retryable Shopify failure for %s page %s: %s (attempt %s/%s)",
+                    domain, page, error, attempt + 1, retries,
+                )
+            if attempt + 1 < retries:
+                await asyncio.sleep(min(2 ** attempt, 4))
+        logger.error("Shopify page exhausted retries for %s page %s", domain, page)
+        return {"products": [], "_fetch_failed": True}
 
     async def fetch_all_products(
-        self, domain: str, max_pages: int = 20, max_products: int | None = None
+        self, domain: str, max_pages: int = 40, max_products: int | None = None
     ) -> list[dict[str, Any]]:
         """Fetch all products from a brand, handling pagination.
         
@@ -93,6 +99,11 @@ class ShopifyClient:
             response = await self.fetch_products(
                 domain, limit=page_size, page=page_count + 1
             )
+            if response.get("_fetch_failed"):
+                # Never replace a complete cached snapshot with a partial
+                # catalog after a transient page failure.
+                logger.warning("Keeping prior catalog snapshot for %s after page failure", domain)
+                return []
             products = response.get("products", [])
 
             if not isinstance(products, list) or not products:
@@ -132,3 +143,47 @@ class ShopifyClient:
             f"in {page_count} pages"
         )
         return all_products
+
+    async def fetch_live_product(
+        self,
+        product_url: str,
+        allowed_domains: set[str],
+        session: aiohttp.ClientSession,
+    ) -> tuple[str, dict[str, Any] | None]:
+        """Fetch one current Shopify product with an allowlisted destination."""
+        parsed = urlparse(product_url)
+        host = (parsed.hostname or "").lower()
+        allowed = {domain.lower().removeprefix("www.") for domain in allowed_domains}
+        if (
+            parsed.scheme not in {"http", "https"}
+            or host.removeprefix("www.") not in allowed
+            or "/products/" not in parsed.path
+        ):
+            return "failed", None
+        handle = parsed.path.split("/products/", 1)[1].split("/", 1)[0]
+        handle = handle.removesuffix(".js").removesuffix(".json")
+        if not handle or not all(char.isalnum() or char in "-_" for char in handle):
+            return "failed", None
+        url = f"https://{host}/products/{handle}.js"
+        try:
+            async with session.get(url, timeout=self.timeout) as response:
+                response_host = (response.url.host or "").lower().removeprefix("www.")
+                if response_host not in allowed:
+                    return "failed", None
+                if response.status in {404, 410}:
+                    return "unavailable", None
+                if response.status != 200:
+                    return "failed", None
+                payload = await response.json(content_type=None)
+        except (asyncio.TimeoutError, aiohttp.ClientError, ValueError):
+            return "failed", None
+        if not isinstance(payload, dict):
+            return "failed", None
+        variants = payload.get("variants") or []
+        has_available_variant = any(
+            isinstance(variant, dict) and variant.get("available", False)
+            for variant in variants
+        )
+        if not payload.get("available", has_available_variant) or not has_available_variant:
+            return "unavailable", payload
+        return "verified", payload

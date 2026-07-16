@@ -9,6 +9,7 @@ class ExtensionIntent(BaseModel):
     category: str | None = Field(default=None, max_length=80)
     color: str | None = Field(default=None, max_length=60)
     size: str | None = Field(default=None, max_length=40)
+    fit: str | None = Field(default=None, max_length=40)
     price_max: float | None = Field(default=None, alias="priceMax", ge=0)
     price_min: float | None = Field(default=None, alias="priceMin", ge=0)
     descriptive: str | None = Field(default=None, max_length=300)
@@ -22,7 +23,7 @@ class ExtensionIntent(BaseModel):
         le=215,
     )
 
-    @field_validator("category", "color", "size", "descriptive", "occasion", "audience", mode="before")
+    @field_validator("category", "color", "size", "fit", "descriptive", "occasion", "audience", mode="before")
     @classmethod
     def normalize_optional_text(cls, value):
         if value is None:
@@ -36,6 +37,7 @@ class ExtensionIntent(BaseModel):
                 self.category,
                 self.color,
                 self.size,
+                self.fit,
                 self.price_max is not None,
                 self.price_min is not None,
                 self.descriptive,
@@ -55,6 +57,17 @@ class ExtensionSearchRequest(BaseModel):
     previous_intent: ExtensionIntent | None = Field(default=None, alias="previousIntent")
 
 
+class ExtensionMatchDetails(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    colors: list[str] = Field(default_factory=list)
+    sizes: list[str] = Field(default_factory=list)
+    fit: str | None = None
+    occasion: str | None = None
+    audience: str | None = None
+    image_matches_color: bool | None = Field(default=None, alias="imageMatchesColor")
+
+
 class ExtensionProductResult(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -66,12 +79,18 @@ class ExtensionProductResult(BaseModel):
     product_url: str = Field(alias="productUrl")
     score: float = Field(ge=0, le=10)
     reason: str
+    match_details: ExtensionMatchDetails = Field(
+        default_factory=ExtensionMatchDetails,
+        alias="matchDetails",
+    )
 
 class ExtensionSearchMeta(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     store_domain: str = Field(alias="storeDomain")
     fetched_count: int = Field(alias="fetchedCount", ge=0)
+    mapped_count: int = Field(default=0, alias="mappedCount", ge=0)
+    exact_count: int = Field(default=0, alias="exactCount", ge=0)
     catalog_capped: bool = Field(alias="catalogCapped")
     relaxed: bool = False
     relaxed_filters: list[str] = Field(default_factory=list, alias="relaxedFilters")

@@ -12,13 +12,17 @@ from app.db.connection import get_session
 from app.llm.fallback import FallbackIntentProvider
 from app.llm.gemini_provider import GeminiIntentProvider
 from app.llm.groq_provider import GroqIntentProvider
+from app.llm.openai_provider import OpenAIIntentProvider
 from app.repositories.brand_repo import BrandRepository
 from app.repositories.chat_repo import ChatRepository
+from app.repositories.device_repo import DeviceRepository
 from app.repositories.events_repo import SessionEventRepository
 from app.repositories.query_cache_repo import QueryCacheRepository
 from app.schemas.session import ChatTurnRequest, ChatTurnResponse, SessionResetRequest
 from app.services.product_cache_service import ProductCacheService, create_cache_service
+from app.services.live_product_service import LiveProductValidationService
 from app.services.session_service import SessionService
+from app.shopify.client import ShopifyClient
 from app.session_store.redis_store import RedisSessionStore
 
 logger = logging.getLogger(__name__)
@@ -27,11 +31,26 @@ router = APIRouter(prefix="/session", tags=["session"])
 
 # Providers are stateless HTTP clients — safe to build once and reuse.
 _settings = get_settings()
+_primary_provider = (
+    OpenAIIntentProvider(_settings.openai_api_key, _settings.openai_model)
+    if _settings.openai_api_key
+    else GeminiIntentProvider(_settings.gemini_api_key, _settings.gemini_model)
+)
+_secondary_provider = (
+    GeminiIntentProvider(_settings.gemini_api_key, _settings.gemini_model)
+    if _settings.openai_api_key
+    else GroqIntentProvider(_settings.groq_api_key, _settings.groq_model)
+)
 _fallback_provider = FallbackIntentProvider(
-    primary=GeminiIntentProvider(_settings.gemini_api_key, _settings.gemini_model),
-    fallback=GroqIntentProvider(_settings.groq_api_key, _settings.groq_model),
+    primary=_primary_provider,
+    fallback=_secondary_provider,
     primary_timeout_seconds=_settings.gemini_timeout_seconds,
-    fallback_timeout_seconds=_settings.groq_timeout_seconds,
+    fallback_timeout_seconds=(
+        _settings.gemini_timeout_seconds
+        if _settings.openai_api_key
+        else _settings.groq_timeout_seconds
+    ),
+    primary_rate_limit_cooldown_seconds=_settings.gemini_rate_limit_cooldown_seconds,
 )
 
 
@@ -53,6 +72,16 @@ async def get_session_service(
         query_cache_repo=QueryCacheRepository(db_session),
         brand_repo=BrandRepository(db_session),
         cache_service=cache_service,
+        llm_first_intent_enabled=_settings.llm_first_intent_enabled,
+        live_validator=(
+            LiveProductValidationService(
+                ShopifyClient(timeout=_settings.live_product_timeout_seconds),
+                concurrency=_settings.live_product_concurrency,
+            )
+            if _settings.live_product_validation_enabled
+            else None
+        ),
+        live_shortlist_size=_settings.live_product_shortlist_size,
     )
 
 
@@ -69,6 +98,11 @@ async def send_message(
     are attributed to that device for the chat log and analytics events.
     """
     try:
+        # Anonymous ids live in browser storage longer than a development DB.
+        # Recreate a missing row with the same UUID before adding chat/event
+        # records, making a local database reset transparent to the shopper.
+        if device_id is not None:
+            await DeviceRepository(db_session).get_or_create(device_id)
         result = await service.handle_turn(
             session_id=payload.session_id,
             device_id=device_id,

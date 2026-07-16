@@ -52,5 +52,5 @@ class RedisSessionStore:
         await self._redis.setex(
             RESULTS_KEY.format(session_id=session_id),
             self._ttl_seconds,
-            json.dumps([p.model_dump() for p in products]),
+            json.dumps([p.model_dump(mode="json") for p in products]),
         )

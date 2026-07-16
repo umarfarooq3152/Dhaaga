@@ -28,6 +28,7 @@ def test_pakistani_event_aliases_normalize_to_canonical_names():
         "school annual day": "sports day",
         "parent teacher meeting": "school function",
         "rukhsati outfit": "baraat",
+        "important work presentation": "office",
     }
     for query, expected in cases.items():
         assert extract_event(query) == expected
@@ -45,9 +46,13 @@ def test_mehndi_rejects_plain_or_unrelated_items():
     plain_kurta = _product("Plain Kurta", category="Kurta", colors=["Grey"])
     stencil = _product("Mehndi Stencil", category="Accessories", colors=["Yellow"])
     assert event_match_score(plain_kurta, "mehndi") == 0.0
-    # Literal event words alone are insufficient for a non-garment at search
-    # time; ingestion separately excludes stencils from the catalog.
-    assert event_match_score(stencil, "mehndi") == 1.0
+    # Literal event words alone are insufficient for a non-garment.
+    assert event_match_score(stencil, "mehndi") == 0.0
+
+    misspelled_stencil = _product(
+        "HENNA STANCILS", category="Accessories", colors=["Yellow"]
+    )
+    assert event_match_score(misspelled_stencil, "mehndi") == 0.0
 
 
 def test_mehndi_search_curates_inferred_products_without_literal_event_tag():
@@ -77,3 +82,26 @@ def test_mehndi_uses_ecommerce_formality_tags_from_guide():
 
     assert event_match_score(party_wear, "mehndi") > 0
     assert event_match_score(daily, "mehndi") == 0
+
+
+def test_independence_day_maps_to_visual_intent_across_clothing_categories():
+    green_dress = _product(
+        "Emerald Green Day Dress", category="Dress", colors=["Green"]
+    )
+    white_tee = _product(
+        "Classic White T-Shirt", category="T-Shirts", colors=["White"]
+    )
+    unrelated = _product(
+        "Black Evening Dress", category="Dress", colors=["Black"]
+    )
+
+    assert event_match_score(green_dress, "independence day") > 0
+    assert event_match_score(white_tee, "14 august") > 0
+    assert event_match_score(unrelated, "independence day") == 0
+
+    printed_non_theme = _product(
+        "Printed Black Kurta", category="Kurta", colors=["Black"], tags=["Printed"]
+    )
+    assert event_match_score(green_dress, "independence day") > event_match_score(
+        printed_non_theme, "independence day"
+    )

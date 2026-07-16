@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Loader2 } from 'lucide-react';
+import { X } from 'lucide-react';
 import { ApiError } from '../api/client';
+import Loader from './Loader';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -132,7 +133,7 @@ export default function AuthModal({ isOpen, onClose, onLogin, onSignup }: AuthMo
                 disabled={isSubmitting}
                 className="w-full bg-[#003224] hover:bg-[#004B37] text-white text-sm font-bold py-2.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
               >
-                {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isSubmitting && <Loader size="16" color="#ffffff" />}
                 {mode === 'login' ? 'Log In' : 'Create Account'}
               </button>
             </form>

@@ -6,6 +6,7 @@ import { useSessionChat } from '../hooks/useSessionChat';
 import { useVoiceRecording } from '../hooks/useVoiceRecording';
 import dhaagaLogo from '../assets/images/dhaaga-logo.png';
 import { AuthUser } from '../api/auth';
+import Loader from './Loader';
 
 interface ChatSearchScreenProps {
   userName: string;
@@ -63,6 +64,11 @@ const ChatMessageSkeleton = () => (
   </div>
 );
 
+function kidsSizeLabel(sizes: string[]): string {
+  const ageRange = sizes.find((size) => /^\d+\s*[-–]\s*\d+$/.test(size.trim()));
+  return ageRange ? `KIDS · ${ageRange.replace(/\s/g, '')} YRS` : 'KIDS';
+}
+
 export default function ChatSearchScreen({
   userName,
   department,
@@ -90,8 +96,21 @@ export default function ChatSearchScreen({
   }, []);
 
   const [inputText, setInputText] = useState('');
-  const { messages, filteredProducts, filters, isChatLoading, isProductsLoading, sendMessage, resetSession } =
+  const { messages, filteredProducts, totalResults, filters, isChatLoading, isProductsLoading, sendMessage, resetSession } =
     useSessionChat(userName, department, initialQuery, initialFilters);
+  const [searchPhase, setSearchPhase] = useState('Understanding your request…');
+
+  useEffect(() => {
+    if (!isProductsLoading) {
+      setSearchPhase('Understanding your request…');
+      return;
+    }
+    const timer = window.setTimeout(
+      () => setSearchPhase('Checking matching products across brands…'),
+      650
+    );
+    return () => window.clearTimeout(timer);
+  }, [isProductsLoading]);
 
   // Mobile sheet states
   const [isSheetExpanded, setIsSheetExpanded] = useState(true);
@@ -111,7 +130,7 @@ export default function ChatSearchScreen({
   // Custom user message submit
   const handleSendMessage = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isChatLoading) return;
     sendMessage(inputText);
     setInputText('');
   };
@@ -130,11 +149,11 @@ export default function ChatSearchScreen({
     }
   };
 
-  // Individual chip removal isn't independently supported server-side yet
-  // (session state has no "clear this one field" signal) — both actions
-  // fall back to a full session reset, which is reliable.
-  const removeFilter = (_key: keyof typeof filters) => {
-    resetSession();
+  const removeFilter = (key: keyof typeof filters) => {
+    sendMessage(`remove ${key}`);
+  };
+  const removeStyle = (style: string) => {
+    sendMessage(`without ${style}`);
   };
 
   const resetAllFilters = () => {
@@ -142,6 +161,25 @@ export default function ChatSearchScreen({
   };
 
   const storyStep = messages.length > 1 ? 1 : 0;
+  const activeIntent = [
+    filters.category && `Product: ${filters.category}`,
+    filters.style !== 'All Styles' && `Style: ${(filters.styles?.length ? filters.styles : [filters.style]).join(', ')}`,
+    filters.occasion !== 'All Occasions' && `Occasion: ${filters.occasion}`,
+    filters.color && `Color: ${filters.color}`,
+    filters.size && `Size: ${filters.size}`,
+    filters.budget !== 'All Budgets' && `Budget: ${filters.budget}`,
+  ].filter(Boolean) as string[];
+  const relaxOptions = [
+    filters.occasion !== 'All Occasions' && { key: 'occasion', label: 'Any occasion' },
+    Boolean(filters.color) && { key: 'color', label: 'Any color' },
+    Boolean(filters.size) && { key: 'size', label: 'Any size' },
+    filters.budget !== 'All Budgets' && { key: 'budget', label: 'Any budget' },
+  ].filter(Boolean) as Array<{ key: keyof typeof filters; label: string }>;
+  const activeStyles = filters.styles?.length
+    ? filters.styles
+    : filters.style !== 'All Styles'
+      ? [filters.style]
+      : [];
 
   // Shared Product Grid Component
   const renderProductGrid = (gridColsClass: string) => (
@@ -152,18 +190,24 @@ export default function ChatSearchScreen({
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 font-sans">
             <SlidersHorizontal className="w-3.5 h-3.5 text-[#003224]" /> parsed intent:
           </span>
+          {filters.category && (
+            <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <span>Product: {filters.category}</span>
+              <button aria-label="Remove product type" onClick={() => removeFilter('category')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
+            </span>
+          )}
           {filters.occasion !== 'All Occasions' && (
             <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
               <span>Occasion: {filters.occasion}</span>
               <button onClick={() => removeFilter('occasion')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
             </span>
           )}
-          {filters.style !== 'All Styles' && (
-            <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
-              <span>Style: {filters.style}</span>
-              <button onClick={() => removeFilter('style')} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
+          {activeStyles.map((style) => (
+            <span key={style} className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <span>Style: {style}</span>
+              <button aria-label={`Remove ${style} style`} onClick={() => removeStyle(style)} className="hover:text-red-300 font-bold ml-1 cursor-pointer transition-colors text-sm">×</button>
             </span>
-          )}
+          ))}
           {filters.budget !== 'All Budgets' && (
             <span className="bg-[#003224] text-white text-xs font-semibold py-1.5 px-3.5 rounded-full flex items-center gap-1.5 shadow-sm">
               <span>Budget: {filters.budget}</span>
@@ -198,25 +242,66 @@ export default function ChatSearchScreen({
           )}
         </div>
         <span className="text-xs text-gray-500 font-sans font-semibold bg-white px-2.5 py-1 rounded border border-gray-150 shadow-xs">
-          {filteredProducts.length} results
+          {totalResults} {totalResults === 1 ? 'result' : 'results'}
         </span>
       </div>
 
-      {isProductsLoading ? (
+      {isProductsLoading && (
+        <div role="status" className="flex items-center gap-3 rounded-lg border border-[#003224]/15 bg-[#003224]/5 px-4 py-3 text-sm text-[#003224] font-sans">
+          <Loader size="16" className="shrink-0" />
+          <div>
+            <p className="font-semibold">{searchPhase}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Keeping every confirmed detail in your intent.</p>
+          </div>
+        </div>
+      )}
+
+      {isProductsLoading && filteredProducts.length === 0 ? (
         <div className={`grid ${gridColsClass} gap-4 sm:gap-6`}>
           {Array.from({ length: 6 }).map((_, i) => (
             <ProductCardSkeleton key={`skeleton-${i}`} />
           ))}
         </div>
       ) : filteredProducts.length === 0 ? (
-        <div className="text-center py-16 bg-white border border-gray-100 rounded-[4px] shadow-xs">
-          <p className="text-sm text-gray-400 font-sans">No matching heritage garments found in this range.</p>
-          <button onClick={resetAllFilters} className="text-[#003224] text-xs underline font-semibold mt-2 cursor-pointer">
-            Reset Filters
+        <div className="text-center py-12 px-6 bg-white border border-gray-100 rounded-[4px] shadow-xs">
+          <p className="font-serif text-lg font-semibold text-gray-900">No exact match for every detail</p>
+          <p className="text-sm text-gray-500 font-sans mt-2 max-w-xl mx-auto">
+            {activeIntent.length > 0
+              ? `We kept ${activeIntent.join(', ')} strict. Broaden one detail below, or describe a replacement in chat.`
+              : 'Try describing a product, color, occasion, material, or budget.'}
+          </p>
+          {relaxOptions.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-2 mt-5">
+              {relaxOptions.map((option) => (
+                <button
+                  key={option.key}
+                  onClick={() => removeFilter(option.key)}
+                  className="rounded-full border border-[#003224]/25 px-4 py-2 text-xs font-semibold text-[#003224] hover:bg-[#003224] hover:text-white transition-colors cursor-pointer"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {activeStyles.length > 0 && (
+            <div className="flex flex-wrap justify-center gap-2 mt-2">
+              {activeStyles.map((style) => (
+                <button
+                  key={style}
+                  onClick={() => removeStyle(style)}
+                  className="rounded-full border border-[#003224]/25 px-4 py-2 text-xs font-semibold text-[#003224] hover:bg-[#003224] hover:text-white transition-colors cursor-pointer"
+                >
+                  Without {style.toLowerCase()}
+                </button>
+              ))}
+            </div>
+          )}
+          <button onClick={resetAllFilters} className="text-gray-500 text-xs underline font-semibold mt-5 cursor-pointer hover:text-[#003224]">
+            Start over
           </button>
         </div>
       ) : (
-        <div className={`grid ${gridColsClass} gap-4 sm:gap-6`}>
+        <div aria-busy={isProductsLoading} className={`grid ${gridColsClass} gap-4 sm:gap-6 transition-opacity ${isProductsLoading ? 'opacity-40 pointer-events-none' : 'opacity-100'}`}>
           {filteredProducts.map((p) => (
             <motion.div
               layout
@@ -265,6 +350,21 @@ export default function ChatSearchScreen({
                 <span className="absolute top-2.5 left-2.5 bg-white/95 backdrop-blur-sm text-[#003224] text-[9px] uppercase tracking-wider font-semibold font-sans py-1 px-2 rounded-full border border-gray-100">
                   {p.brand}
                 </span>
+
+                {p.liveVerified && (
+                  <span
+                    className="absolute top-10 left-2.5 bg-emerald-700/95 text-white text-[8px] uppercase tracking-widest font-bold font-sans py-1 px-2 rounded-full shadow-sm"
+                    title={p.liveVerifiedAt ? `Stock checked ${new Date(p.liveVerifiedAt).toLocaleTimeString()}` : 'Stock checked live'}
+                  >
+                    ● Live stock
+                  </span>
+                )}
+
+                {p.isKids && (
+                  <span className={`absolute ${p.liveVerified ? 'top-[4.5rem]' : 'top-10'} left-2.5 bg-[#003224] text-white text-[9px] uppercase tracking-wider font-bold font-sans py-1 px-2 rounded-full shadow-sm`}>
+                    {kidsSizeLabel(p.sizes)}
+                  </span>
+                )}
                 
                 {/* Micro info on hover */}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-end">
@@ -442,7 +542,7 @@ export default function ChatSearchScreen({
                     </div>
                   ) : isTranscribing ? (
                     <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center gap-2 mb-2">
-                      <RefreshCw className="w-3.5 h-3.5 text-[#003224] animate-spin" />
+                      <Loader size="14" />
                       <span className="text-xs text-gray-600 font-sans">Transcribing your voice search...</span>
                     </div>
                   ) : (
@@ -450,6 +550,7 @@ export default function ChatSearchScreen({
                       <input
                         type="text"
                         value={inputText}
+                        disabled={isChatLoading}
                         onChange={(e) => setInputText(e.target.value)}
                         placeholder="Type message..."
                         className="flex-1 bg-[#FCF9F8] border border-gray-200 focus:border-[#003224] focus:ring-0 rounded-full py-2.5 px-4 text-xs font-sans outline-none"
@@ -463,7 +564,7 @@ export default function ChatSearchScreen({
                       </button>
                       <button
                         type="submit"
-                        disabled={!inputText.trim()}
+                        disabled={!inputText.trim() || isChatLoading}
                         className="bg-[#003224] disabled:bg-gray-200 text-white p-2.5 rounded-full transition-colors"
                       >
                         <Send className="w-4 h-4" />
@@ -685,7 +786,7 @@ export default function ChatSearchScreen({
             )}
             {isTranscribing && (
               <div className="bg-[#003224]/5 rounded-full py-2.5 px-4 flex items-center gap-2 mb-2">
-                <RefreshCw className="w-4 h-4 text-[#003224] animate-spin" />
+                <Loader size="16" />
                 <span className="text-xs text-gray-600 font-sans font-semibold">Transcribing your voice search...</span>
               </div>
             )}
@@ -694,6 +795,7 @@ export default function ChatSearchScreen({
               <input
                 type="text"
                 value={inputText}
+                disabled={isChatLoading}
                 onChange={(e) => setInputText(e.target.value)}
                 placeholder="Ask Dhaaga AI... e.g. show under 30k"
                 className="flex-1 bg-[#FCF9F8] border border-gray-200 focus:border-[#003224] focus:ring-0 rounded-full py-2.5 px-4.5 text-xs sm:text-sm font-sans outline-none transition-all"
@@ -709,7 +811,7 @@ export default function ChatSearchScreen({
               </button>
               <button
                 type="submit"
-                disabled={!inputText.trim()}
+                disabled={!inputText.trim() || isChatLoading}
                 className="bg-[#003224] disabled:bg-gray-200 text-white p-2.5 rounded-full disabled:cursor-not-allowed transition-colors cursor-pointer"
               >
                 <Send className="w-4 h-4 sm:w-4.5 sm:h-4.5" />

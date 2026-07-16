@@ -41,7 +41,9 @@ class ChatRepository:
             content=content,
         )
         self.session.add(message)
-        await self.session.flush()
+        # The request router commits once after the complete turn. Flushing
+        # every user/assistant message separately adds a remote-Postgres round
+        # trip without any caller needing the generated id in between.
         return message
 
     async def get_session_message_count(self, session_id: str) -> int:

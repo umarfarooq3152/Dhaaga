@@ -11,10 +11,17 @@ export async function getBrandNameMap(): Promise<Record<string, string>> {
   if (brandNameCache) return brandNameCache;
   if (inFlight) return inFlight;
 
-  inFlight = api.get<ApiBrand[]>('/brands').then((brands) => {
-    brandNameCache = Object.fromEntries(brands.map((b) => [b.slug, b.name]));
-    return brandNameCache;
-  });
+  inFlight = api.get<ApiBrand[]>('/brands')
+    .then((brands) => {
+      brandNameCache = Object.fromEntries(brands.map((b) => [b.slug, b.name]));
+      return brandNameCache;
+    })
+    .catch((error) => {
+      // A transient failure must not poison the module forever. The product
+      // mapper can fall back to the slug and a later request may retry.
+      inFlight = null;
+      throw error;
+    });
 
   return inFlight;
 }

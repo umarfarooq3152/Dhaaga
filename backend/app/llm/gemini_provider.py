@@ -7,6 +7,7 @@ from google import genai
 from google.genai import types
 
 from app.errors import ExternalServiceError
+from app.llm.intent_prompt import LLM_FIRST_INTENT_INSTRUCTION
 from app.schemas.session import IntentExtractionResult, SessionState
 
 logger = logging.getLogger(__name__)
@@ -24,11 +25,15 @@ Fields to extract (use null/empty when not present in THIS message — never gue
   cultural day, Eid Milan, Chand Raat, dawat, farewell/annual dinner,
   orientation, color day, sports day, school function, Diwali, Holi,
   Christmas, mourning, office, or casual (or null)
+- category: the primary garment/product explicitly requested (e.g. polo,
+  sweater, jeans, kurta, shalwar kameez, lehenga, belt, or activewear). When a
+  second garment is only styling context ("jeans to wear with a black shirt"),
+  use the first requested product, jeans.
 - color_preference: a single color mentioned (or null) — this OVERWRITES any prior color
 - budget_max: a maximum price in PKR if mentioned (or null)
-- style_descriptors: fuzzy style words/phrases AND any specific garment/category named
-  (e.g. "elegant", "not too flashy", "kurta", "shalwar kameez", "polo", "lehenga",
-  "sherwani") — these ACCUMULATE across turns, only include NEW ones from this message
+- style_descriptors: fuzzy style words/phrases such as "elegant", "baggy",
+  "knitted", or "not too flashy". Put garment names in category. These
+  descriptors ACCUMULATE across turns; only include NEW ones from this message.
 - size: a clothing size if mentioned (or null)
 - urgency_days: number of days until needed, if a deadline is mentioned (or null)
 - department: "men" or "women" only when explicitly stated in THIS message
@@ -46,7 +51,7 @@ follow-up question for more detail — partial extraction is still useful and
 must not be discarded.
 
 Be consultative, not just a search box: count how many of {occasion, budget_max,
-color_preference or style_descriptors (including a named garment/category), size}
+color_preference, category or style_descriptors, size}
 are known after merging this message with the session context. If FEWER THAN 2
 are known, the query is too vague to narrow well — your reply should acknowledge
 what you're showing so far AND ask 1-2 specific follow-up questions to narrow it
@@ -115,15 +120,20 @@ class GeminiIntentProvider:
                 model=self._model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+                    system_instruction=LLM_FIRST_INTENT_INSTRUCTION,
                     response_mime_type="application/json",
                     response_schema=IntentExtractionResult,
-                    temperature=0.3,
                 ),
             )
         except Exception as e:
+            status_code = getattr(e, "code", None)
+            details = {"status_code": status_code} if isinstance(status_code, int) else {}
+            if status_code == 429:
+                details["reason"] = "rate_limited"
             raise ExternalServiceError(
-                f"Gemini intent extraction failed: {e}", service="gemini"
+                f"Gemini intent extraction failed: {e}",
+                service="gemini",
+                details=details,
             ) from e
 
         parsed = getattr(response, "parsed", None)

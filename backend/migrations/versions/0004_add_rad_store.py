@@ -22,6 +22,11 @@ def upgrade() -> None:
         """
         INSERT INTO brand_registry (name, slug, domain, department, is_active)
         VALUES ('Rad Store', 'rad-store', 'radstore.pk', 'men', true)
+        ON CONFLICT (slug) DO UPDATE SET
+            name = EXCLUDED.name,
+            domain = EXCLUDED.domain,
+            department = 'men',
+            is_active = true
         """
     )
 
